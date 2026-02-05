@@ -6,11 +6,16 @@ public struct PromptRedactionResult {
 }
 
 public enum PromptRedactor {
-    private static let regexes: [NSRegularExpression] = [
-        try! NSRegularExpression(pattern: "\\b\\d{3}-\\d{2}-\\d{4}\\b"),
-        try! NSRegularExpression(pattern: "(?i)(api[_-]?key|secret|token)[^\\n\\r]{0,16}[:=][^\\s]{8,}"),
-        try! NSRegularExpression(pattern: "-----BEGIN (EC|RSA|OPENSSH|PRIVATE) KEY-----")
-    ]
+    private static let regexes: [NSRegularExpression] = {
+        let patterns = [
+            "\\b\\d{3}-\\d{2}-\\d{4}\\b",
+            "(?i)(api[_-]?key|secret|token)[^\\n\\r]{0,16}[:=][^\\s]{8,}",
+            "-----BEGIN (EC|RSA|OPENSSH|PRIVATE) KEY-----"
+        ]
+        return patterns.compactMap { pattern in
+            try? NSRegularExpression(pattern: pattern)
+        }
+    }()
 
     public static func redact(_ input: String) -> PromptRedactionResult {
         var text = input

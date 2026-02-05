@@ -787,16 +787,16 @@ struct SettingsView: View {
 
     private func testWebFilters(_ text: String) -> String {
         var result = text
-        for filter in webFilterStore.activeFilters() {
-            switch filter.type {
+        for entry in webFilterStore.compiledFilters() {
+            switch entry.rule.type {
             case .word:
                 result = result.replacingOccurrences(
-                    of: filter.pattern,
+                    of: entry.rule.pattern,
                     with: "[FILTERED]",
                     options: .caseInsensitive
                 )
             case .regex:
-                if let regex = try? NSRegularExpression(pattern: filter.pattern) {
+                if let regex = entry.regex {
                     let range = NSRange(location: 0, length: result.utf16.count)
                     result = regex.stringByReplacingMatches(
                         in: result,

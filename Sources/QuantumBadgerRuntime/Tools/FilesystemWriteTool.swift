@@ -96,10 +96,6 @@ struct FilesystemWriteTool: SecureInjectionTool {
         vaultStore: VaultStore,
         redactor: SecretRedactor
     ) -> String? {
-        if let rawPath = request.input["path"] {
-            redactor.register(rawPath)
-            return rawPath
-        }
         if let refLabel = request.input["pathRef"],
            let references = request.vaultReferences,
            let reference = references.first(where: { $0.label == refLabel }),

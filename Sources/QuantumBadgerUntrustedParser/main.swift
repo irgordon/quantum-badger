@@ -104,26 +104,127 @@ final class UntrustedParsingService: NSObject, UntrustedParsingXPCProtocol {
     }
 
     private func sanitizeHTML(_ html: String) -> String {
-        var result = html
-        let patterns = [
-            "<script[\\s\\S]*?>[\\s\\S]*?<\\/script>",
-            "<iframe[\\s\\S]*?>[\\s\\S]*?<\\/iframe>",
-            "<object[\\s\\S]*?>[\\s\\S]*?<\\/object>",
-            "<style[\\s\\S]*?>[\\s\\S]*?<\\/style>"
-        ]
-        for pattern in patterns {
-            if let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) {
-                let range = NSRange(location: 0, length: result.utf16.count)
-                result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: " ")
+        let disallowed = Set(["script", "iframe", "object", "style"])
+        var output = ""
+        output.reserveCapacity(min(html.count, 1024 * 64))
+
+        var index = html.startIndex
+        var skipDepth = 0
+
+        while index < html.endIndex {
+            let char = html[index]
+            if char == "<" {
+                guard let tagEnd = html[index...].firstIndex(of: ">") else { break }
+                let tagContent = html[html.index(after: index)..<tagEnd]
+                let tagNameInfo = parseTagName(from: tagContent)
+                if let tagName = tagNameInfo.name {
+                    if disallowed.contains(tagName) {
+                        if tagNameInfo.isClosing {
+                            if skipDepth > 0 { skipDepth -= 1 }
+                        } else if !tagNameInfo.isSelfClosing {
+                            skipDepth += 1
+                        }
+                    }
+                }
+                index = html.index(after: tagEnd)
+                continue
+            }
+
+            if skipDepth == 0 {
+                output.append(char)
+            }
+            index = html.index(after: index)
+        }
+
+        let cleaned = decodeHTMLEntities(in: output)
+            .replacingOccurrences(of: "\u{0}", with: "")
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned
+    }
+
+    private func decodeHTMLEntities(in text: String) -> String {
+        var result = ""
+        result.reserveCapacity(text.count)
+
+        var index = text.startIndex
+        while index < text.endIndex {
+            if text[index] == "&" {
+                let nextIndex = text.index(after: index)
+                if let semicolon = text[nextIndex...].firstIndex(of: ";") {
+                    let entity = String(text[nextIndex..<semicolon])
+                    if let decoded = decodeEntity(entity) {
+                        result.append(decoded)
+                        index = text.index(after: semicolon)
+                        continue
+                    } else {
+                        result.append(contentsOf: "&" + entity + ";")
+                        index = text.index(after: semicolon)
+                        continue
+                    }
+                }
+            }
+            result.append(text[index])
+            index = text.index(after: index)
+        }
+        return result
+    }
+
+    private func decodeEntity(_ entity: String) -> String? {
+        switch entity {
+        case "amp": return "&"
+        case "lt": return "<"
+        case "gt": return ">"
+        case "quot": return "\""
+        case "apos": return "'"
+        default:
+            break
+        }
+        if entity.hasPrefix("#x") || entity.hasPrefix("#X") {
+            let hex = String(entity.dropFirst(2))
+            if let value = UInt32(hex, radix: 16),
+               let scalar = UnicodeScalar(value) {
+                return String(Character(scalar))
+            }
+        } else if entity.hasPrefix("#") {
+            let num = String(entity.dropFirst(1))
+            if let value = UInt32(num),
+               let scalar = UnicodeScalar(value) {
+                return String(Character(scalar))
             }
         }
-        if let tagRegex = try? NSRegularExpression(pattern: "<[^>]+>", options: []) {
-            let range = NSRange(location: 0, length: result.utf16.count)
-            result = tagRegex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: " ")
+        return nil
+    }
+
+    private func parseTagName(from content: Substring) -> (name: String?, isClosing: Bool, isSelfClosing: Bool) {
+        var iterator = content.makeIterator()
+        var chars: [Character] = []
+        var isClosing = false
+        var isSelfClosing = false
+
+        while let char = iterator.next() {
+            if char == "/" && chars.isEmpty {
+                isClosing = true
+                continue
+            }
+            if char.isLetter || char.isNumber {
+                chars.append(char.lowercased())
+                continue
+            }
+            if char == "/" {
+                isSelfClosing = true
+            }
+            if !chars.isEmpty {
+                break
+            }
         }
-        result = result.replacingOccurrences(of: "\u{0}", with: "")
-        result = result.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if content.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("/") {
+            isSelfClosing = true
+        }
+
+        let name = chars.isEmpty ? nil : String(chars)
+        return (name, isClosing, isSelfClosing)
     }
 }
 

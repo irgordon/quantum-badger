@@ -125,10 +125,6 @@ struct SecureDatabaseQueryTool: SecureInjectionTool {
             redactor.register(secretPath)
             return normalizeSQLitePath(secretPath)
         }
-        if let rawPath = request.input["connectionString"] {
-            redactor.register(rawPath)
-            return normalizeSQLitePath(rawPath)
-        }
         return nil
     }
 

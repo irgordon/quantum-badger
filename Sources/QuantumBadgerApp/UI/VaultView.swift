@@ -28,12 +28,16 @@ struct VaultView: View {
                     secret = ""
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled(vaultStore.isLoading)
             }
 
             Toggle("Show once, hide after 10 seconds", isOn: $hideAfterDelay)
                 .toggleStyle(.switch)
 
-            if vaultStore.items.isEmpty {
+            if vaultStore.isLoading {
+                ProgressView("Loading secure items…")
+                    .controlSize(.regular)
+            } else if vaultStore.items.isEmpty {
                 ContentUnavailableView("No Saved Items", systemImage: "lock", description: Text("Saved items appear here."))
             } else {
                 List {

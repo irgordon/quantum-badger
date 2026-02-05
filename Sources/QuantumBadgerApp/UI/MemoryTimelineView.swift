@@ -11,6 +11,13 @@ struct MemoryTimelineView: View {
     @State private var showInspector: Bool = false
     @State private var showResetConfirm: Bool = false
     @State private var errorMessage: String?
+    @State private var isLoadingPage: Bool = false
+    @State private var pageOffset: Int = 0
+    @State private var hasMorePages: Bool = true
+    @State private var scrollViewMaxY: CGFloat = 0
+    @State private var contentEndY: CGFloat = 0
+    private let pageSize: Int = 50
+    private let preloadThreshold: CGFloat = 240
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -78,11 +85,47 @@ struct MemoryTimelineView: View {
                     description: Text("Quantum Badger learns as you work. Try searching for files or asking a question to see memories appear here.")
                 )
             } else {
-                List(filteredEntries) { entry in
-                    MemoryRow(entry: entry)
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        ForEach(filteredEntries) { entry in
+                            MemoryRow(entry: entry)
+                        }
+                        if isLoadingPage {
+                            HStack {
+                                Spacer()
+                                ProgressView()
+                                    .controlSize(.small)
+                                Spacer()
+                            }
+                            .padding(.vertical, 8)
+                        }
+                        Color.clear
+                            .frame(height: 1)
+                            .background(
+                                GeometryReader { proxy in
+                                    Color.clear
+                                        .preference(key: ContentEndYKey.self, value: proxy.frame(in: .global).maxY)
+                                }
+                            )
+                    }
+                    .padding(.vertical, 4)
                 }
                 .frame(minHeight: 220)
                 .privacySensitive()
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear
+                            .preference(key: ScrollViewMaxYKey.self, value: proxy.frame(in: .global).maxY)
+                    }
+                )
+                .onPreferenceChange(ScrollViewMaxYKey.self) { value in
+                    scrollViewMaxY = value
+                    maybeLoadNextPage()
+                }
+                .onPreferenceChange(ContentEndYKey.self) { value in
+                    contentEndY = value
+                    maybeLoadNextPage()
+                }
             }
 
             if let errorMessage {
@@ -121,11 +164,38 @@ struct MemoryTimelineView: View {
     }
 
     private func loadTimeline() async {
-        entries = await memoryManager.loadTimelineEntries()
+        pageOffset = 0
+        hasMorePages = true
+        entries = []
+        await loadNextPage()
     }
 
     private func refreshTimeline() {
         Task { await loadTimeline() }
+    }
+
+    private func loadNextPage() async {
+        guard !isLoadingPage else { return }
+        isLoadingPage = true
+        let page = await memoryManager.loadTimelinePage(limit: pageSize, offset: pageOffset)
+        if page.isEmpty {
+            hasMorePages = false
+        } else {
+            entries.append(contentsOf: page)
+            pageOffset += pageSize
+            if page.count < pageSize {
+                hasMorePages = false
+            }
+        }
+        isLoadingPage = false
+    }
+
+    private func maybeLoadNextPage() {
+        guard hasMorePages, !isLoadingPage else { return }
+        let distance = contentEndY - scrollViewMaxY
+        if distance < preloadThreshold {
+            Task { await loadNextPage() }
+        }
     }
 
     private func recoveryText(for issue: MemoryRecoveryIssue) -> String {
@@ -179,6 +249,20 @@ private struct MemoryRow: View {
         case .level0Ephemeral:
             return .gray
         }
+    }
+}
+
+private struct ScrollViewMaxYKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+private struct ContentEndYKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
 

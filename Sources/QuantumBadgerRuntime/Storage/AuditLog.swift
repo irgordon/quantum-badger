@@ -9,6 +9,7 @@ final class AuditLog {
     private let keychain: KeychainStore
     private let persistQueue = DispatchQueue(label: "com.quantumbadger.audit.persist", qos: .utility)
     private let maxEntries = 2000
+    private var rotationInProgress: Bool = false
 
     init(storageURL: URL = AppPaths.auditLogURL, keychain: KeychainStore = KeychainStore(service: "com.quantumbadger.audit")) {
         self.storageURL = storageURL
@@ -81,8 +82,24 @@ final class AuditLog {
 
     private func rotateIfNeeded() {
         guard entries.count > maxEntries else { return }
-        entries = Array(entries.suffix(maxEntries))
-        entries = recomputeHashes(entries)
+        guard !rotationInProgress else { return }
+        rotationInProgress = true
+        let snapshot = entries
+        let snapshotLastId = snapshot.last?.id
+        persistQueue.async { [weak self] in
+            guard let self else { return }
+            let truncated = Array(snapshot.suffix(self.maxEntries))
+            let recomputed = self.recomputeHashes(truncated)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                defer { self.rotationInProgress = false }
+                guard self.entries.count == snapshot.count,
+                      self.entries.last?.id == snapshotLastId else {
+                    return
+                }
+                self.entries = recomputed
+            }
+        }
     }
 
     private func recomputeHashes(_ items: [AuditEntry]) -> [AuditEntry] {

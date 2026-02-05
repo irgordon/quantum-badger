@@ -6,6 +6,7 @@ import LocalAuthentication
 @Observable
 final class VaultStore {
     private(set) var items: [VaultItem] = []
+    private(set) var isLoading: Bool = false
 
     private let keychain = KeychainStore()
     private let storageURL: URL
@@ -14,7 +15,7 @@ final class VaultStore {
     init(storageURL: URL = AppPaths.vaultURL, auditLog: AuditLog) {
         self.storageURL = storageURL
         self.auditLog = auditLog
-        load()
+        loadAsync()
     }
 
     func storeSecret(label: String, value: String) {
@@ -101,17 +102,33 @@ final class VaultStore {
         return BookmarkResolution(url: url, isStale: isStale)
     }
 
-    private func load() {
-        guard let data = try? Data(contentsOf: storageURL) else { return }
-        do {
-            let key = try keychain.loadOrCreateKey()
-            let box = try AES.GCM.SealedBox(combined: data)
-            let decrypted = try AES.GCM.open(box, using: key)
-            let snapshot = try JSONDecoder().decode(VaultSnapshot.self, from: decrypted)
-            items = snapshot.items
-        } catch {
-            AppLogger.storage.error("Failed to load vault: \(error.localizedDescription, privacy: .private)")
-            items = []
+    private func loadAsync() {
+        let storageURL = storageURL
+        let keychain = keychain
+        isLoading = true
+        Task.detached(priority: .utility) { [weak self] in
+            guard let data = try? Data(contentsOf: storageURL) else {
+                await MainActor.run {
+                    self?.isLoading = false
+                }
+                return
+            }
+            do {
+                let key = try keychain.loadOrCreateKey()
+                let box = try AES.GCM.SealedBox(combined: data)
+                let decrypted = try AES.GCM.open(box, using: key)
+                let snapshot = try JSONDecoder().decode(VaultSnapshot.self, from: decrypted)
+                await MainActor.run {
+                    self?.items = snapshot.items
+                    self?.isLoading = false
+                }
+            } catch {
+                AppLogger.storage.error("Failed to load vault: \(error.localizedDescription, privacy: .private)")
+                await MainActor.run {
+                    self?.items = []
+                    self?.isLoading = false
+                }
+            }
         }
     }
 

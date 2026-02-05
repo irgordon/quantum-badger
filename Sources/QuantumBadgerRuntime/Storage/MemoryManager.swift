@@ -204,6 +204,47 @@ final class MemoryManager {
         }.value
     }
 
+    func loadTimelinePage(limit: Int, offset: Int) async -> [MemoryEntry] {
+        let safeLimit = max(1, min(limit, 500))
+        let safeOffset = max(0, offset)
+        var descriptor = FetchDescriptor<MemoryRecord>(sortBy: [SortDescriptor(\.createdAt, order: .reverse)])
+        descriptor.fetchLimit = safeLimit
+        descriptor.fetchOffset = safeOffset
+        let includeHeader = safeOffset == 0
+        let ephemeral = includeHeader ? ephemeralEntries : []
+        let observations = includeHeader ? observationStore.entries() : []
+        let summaries = includeHeader ? summaryStore.entries() : []
+
+        return await Task.detached(priority: .utility) { [weak self] in
+            guard let self else { return [] }
+            var items: [MemoryEntry] = []
+            items.append(contentsOf: ephemeral)
+            items.append(contentsOf: observations)
+            items.append(contentsOf: summaries)
+            let cachedKey = try? self.keychain.loadOrCreateKey()
+            if let records = try? self.modelContext.fetch(descriptor) {
+                let decrypted = records.compactMap { record in
+                    guard let trustLevel = MemoryTrustLevel(rawValue: record.trustLevel),
+                          let sourceType = MemorySource(rawValue: record.sourceType),
+                          let content = self.decrypt(record.encryptedContent, key: cachedKey) else { return nil }
+                    return MemoryEntry(
+                        id: record.id,
+                        trustLevel: trustLevel,
+                        content: content,
+                        sourceType: sourceType,
+                        sourceDetail: record.sourceDetail,
+                        createdAt: record.createdAt,
+                        isConfirmed: record.confirmedAt != nil,
+                        confirmedAt: record.confirmedAt,
+                        expiresAt: record.expiresAt
+                    )
+                }
+                items.append(contentsOf: decrypted)
+            }
+            return items.sorted { $0.createdAt > $1.createdAt }
+        }.value
+    }
+
     func allowsToolAction(from entry: MemoryEntry) -> Bool {
         entry.trustLevel == .level1UserAuthored
     }
