@@ -3,19 +3,27 @@ import NaturalLanguage
 
 final class SecretRedactor {
     private var secrets: [String] = []
+    private var secretsRegex: NSRegularExpression?
+    private var needsRegexRebuild: Bool = true
 
     func register(_ secret: String) {
         let trimmed = secret.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         if !secrets.contains(trimmed) {
             secrets.append(trimmed)
+            needsRegexRebuild = true
         }
     }
 
     func redact(_ text: String) -> String {
         var redacted = text
-        for secret in secrets {
-            redacted = redacted.replacingOccurrences(of: secret, with: "[REDACTED]")
+        if let regex = compiledSecretsRegex() {
+            let range = NSRange(redacted.startIndex..<redacted.endIndex, in: redacted)
+            redacted = regex.stringByReplacingMatches(in: redacted, range: range, withTemplate: "[REDACTED]")
+        } else {
+            for secret in secrets {
+                redacted = redacted.replacingOccurrences(of: secret, with: "[REDACTED]")
+            }
         }
         return redactHighEntropy(in: redacted)
     }
@@ -35,6 +43,23 @@ final class SecretRedactor {
             }
         }
         return redacted
+    }
+
+    private func compiledSecretsRegex() -> NSRegularExpression? {
+        if !needsRegexRebuild {
+            return secretsRegex
+        }
+        needsRegexRebuild = false
+        let escaped = secrets
+            .sorted { $0.count > $1.count }
+            .map { NSRegularExpression.escapedPattern(for: $0) }
+        guard !escaped.isEmpty else {
+            secretsRegex = nil
+            return nil
+        }
+        let pattern = escaped.joined(separator: "|")
+        secretsRegex = try? NSRegularExpression(pattern: pattern)
+        return secretsRegex
     }
 
     private func tokenize(_ text: String) -> [String] {

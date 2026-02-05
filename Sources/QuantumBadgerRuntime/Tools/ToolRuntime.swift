@@ -158,7 +158,7 @@ actor ToolRuntime {
             let response = try await networkClient.fetch(webRequest, purpose: .webContentRetrieval)
             let sanitized = try await untrustedParser.parse(response.data)
             let cleaned = WebScoutACL.clean(from: sanitized)
-            let filtered = applyWebFilters(cleaned.renderedText)
+            let filtered = await applyWebFilters(cleaned.renderedText)
             let policyDecision = await policy.evaluateWebContent(filtered)
             guard policyDecision.isAllowed else {
                 let output = ["error": policyDecision.reason]
@@ -183,7 +183,6 @@ actor ToolRuntime {
             try enforceOutputLimit(output, maxBytes: limits.maxOutputBytes)
             return ToolResult(id: request.id, toolName: request.toolName, output: output, succeeded: true, finishedAt: Date())
         } else {
-            try? await Task.sleep(nanoseconds: 200_000_000)
             let output = ["status": "ok", "note": "Stubbed execution for \(request.toolName)."]
             try enforceOutputLimit(output, maxBytes: limits.maxOutputBytes)
             return ToolResult(id: request.id, toolName: request.toolName, output: output, succeeded: true, finishedAt: Date())
@@ -206,18 +205,19 @@ actor ToolRuntime {
         return components?.url ?? URL(string: "https://duckduckgo.com/html/") ?? URL(fileURLWithPath: "/")
     }
 
-    private func applyWebFilters(_ text: String) -> String {
+    private func applyWebFilters(_ text: String) async -> String {
         var result = text
-        for filter in webFilterStore.activeFilters() {
-            switch filter.type {
+        let compiled = await MainActor.run { webFilterStore.compiledFilters() }
+        for entry in compiled {
+            switch entry.rule.type {
             case .word:
                 result = result.replacingOccurrences(
-                    of: filter.pattern,
+                    of: entry.rule.pattern,
                     with: "[FILTERED]",
                     options: .caseInsensitive
                 )
             case .regex:
-                if let regex = try? NSRegularExpression(pattern: filter.pattern) {
+                if let regex = entry.regex {
                     let range = NSRange(location: 0, length: result.utf16.count)
                     result = regex.stringByReplacingMatches(
                         in: result,

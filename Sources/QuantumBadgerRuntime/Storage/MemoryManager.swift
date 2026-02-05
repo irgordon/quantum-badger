@@ -146,11 +146,12 @@ final class MemoryManager {
         items.append(contentsOf: observationStore.entries())
         items.append(contentsOf: summaryStore.entries())
         let descriptor = FetchDescriptor<MemoryRecord>(sortBy: [SortDescriptor(\.createdAt, order: .reverse)])
+        let cachedKey = try? keychain.loadOrCreateKey()
         if let records = try? modelContext.fetch(descriptor) {
             let decrypted = records.compactMap { record in
                 guard let trustLevel = MemoryTrustLevel(rawValue: record.trustLevel),
                       let sourceType = MemorySource(rawValue: record.sourceType),
-                      let content = decrypt(record.encryptedContent) else { return nil }
+                      let content = decrypt(record.encryptedContent, key: cachedKey) else { return nil }
                 return MemoryEntry(
                     id: record.id,
                     trustLevel: trustLevel,
@@ -179,11 +180,12 @@ final class MemoryManager {
             items.append(contentsOf: ephemeral)
             items.append(contentsOf: observations)
             items.append(contentsOf: summaries)
+            let cachedKey = try? self.keychain.loadOrCreateKey()
             if let records = try? self.modelContext.fetch(descriptor) {
                 let decrypted = records.compactMap { record in
                     guard let trustLevel = MemoryTrustLevel(rawValue: record.trustLevel),
                           let sourceType = MemorySource(rawValue: record.sourceType),
-                          let content = self.decrypt(record.encryptedContent) else { return nil }
+                          let content = self.decrypt(record.encryptedContent, key: cachedKey) else { return nil }
                     return MemoryEntry(
                         id: record.id,
                         trustLevel: trustLevel,
@@ -294,8 +296,8 @@ final class MemoryManager {
         return combined
     }
 
-    private func decrypt(_ data: Data) -> String? {
-        guard let key = try? keychain.loadOrCreateKey() else {
+    private func decrypt(_ data: Data, key: SymmetricKey?) -> String? {
+        guard let key else {
             recoveryIssue = .keyUnavailable
             return nil
         }

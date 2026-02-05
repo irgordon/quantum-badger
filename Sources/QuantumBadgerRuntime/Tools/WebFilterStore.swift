@@ -8,6 +8,7 @@ final class WebFilterStore {
     private(set) var filters: [WebFilterRule]
     private(set) var strictModeEnabled: Bool
     private(set) var allowedDomains: [String]
+    private var regexCache: [UUID: NSRegularExpression] = [:]
 
     init(storageURL: URL = AppPaths.webFilterURL) {
         self.storageURL = storageURL
@@ -32,11 +33,30 @@ final class WebFilterStore {
 
     func removeFilter(_ filter: WebFilterRule) {
         filters.removeAll { $0.id == filter.id }
+        regexCache.removeValue(forKey: filter.id)
         persist()
     }
 
     func activeFilters() -> [WebFilterRule] {
         filters
+    }
+
+    func compiledFilters() -> [CompiledWebFilter] {
+        filters.map { rule in
+            switch rule.type {
+            case .word:
+                return CompiledWebFilter(rule: rule, regex: nil)
+            case .regex:
+                if let cached = regexCache[rule.id] {
+                    return CompiledWebFilter(rule: rule, regex: cached)
+                }
+                if let compiled = try? NSRegularExpression(pattern: rule.pattern) {
+                    regexCache[rule.id] = compiled
+                    return CompiledWebFilter(rule: rule, regex: compiled)
+                }
+                return CompiledWebFilter(rule: rule, regex: nil)
+            }
+        }
     }
 
     func setStrictMode(_ enabled: Bool) {
@@ -96,6 +116,11 @@ struct WebFilterRule: Identifiable, Codable, Hashable {
     let id: UUID
     var pattern: String
     var type: WebFilterType
+}
+
+struct CompiledWebFilter {
+    let rule: WebFilterRule
+    let regex: NSRegularExpression?
 }
 
 private struct WebFilterSnapshot: Codable {
