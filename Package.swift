@@ -27,7 +27,8 @@ let package = Package(
         .executableTarget(
             name: "QuantumBadgerApp",
             dependencies: ["QuantumBadgerRuntime"],
-            path: "Sources/QuantumBadgerApp"
+            path: "Sources/QuantumBadgerApp",
+            resources: [.process("Resources")]
         ),
         .testTarget(
             name: "QuantumBadgerTests",
