@@ -40,6 +40,7 @@ struct SettingsView: View {
     @State private var allowedDomainDraft: String = ""
     @State private var webFilterTestInput: String = ""
     @State private var webFilterTestOutput: String = ""
+    @State private var memoryExportNotice: String?
     @State private var allowedHTMLTagsText: String = ""
     @State private var allowedTagsDebounceTask: Task<Void, Never>?
 
@@ -550,6 +551,23 @@ struct SettingsView: View {
 
                     MemoryEntryForm(memoryManager: memoryManager)
                     MemoryTimelineView(memoryManager: memoryManager)
+
+                    Divider()
+
+                    HStack(spacing: 12) {
+                        Button("Export Memory") {
+                            Task { await exportMemory() }
+                        }
+                        .buttonStyle(.bordered)
+                        if let memoryExportNotice {
+                            Text(memoryExportNotice)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    Text("Exports a local JSON snapshot of your memory timeline.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
 
                 Spacer()
@@ -797,6 +815,20 @@ struct SettingsView: View {
         let endpoints = parseHosts(from: value)
         securityCapabilities.networkPolicy.setEndpoints(endpoints)
         endpointDrafts = endpoints.map { EndpointDraft(from: $0) }
+    }
+
+    @MainActor
+    private func exportMemory() async {
+        let defaultName = "QuantumBadger-Memory-\(Date().formatted(date: .numeric, time: .omitted))"
+        let url = await SavePanelPresenter.present(
+            defaultFileName: defaultName,
+            allowedFileTypes: ["json"]
+        )
+        guard let url else { return }
+        let succeeded = await memoryManager.exportTimeline(to: url)
+        memoryExportNotice = succeeded
+            ? "Memory export complete."
+            : "Export failed. Try again."
     }
 
     private func scheduleAllowedTagsSync(_ value: String) {

@@ -38,6 +38,36 @@ struct MemoryTimelineView: View {
                 }
             }
 
+            GroupBox("Needs Confirmation") {
+                if memoryManager.pendingWrites.isEmpty {
+                    Text("No blocked writes right now.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    ForEach(memoryManager.pendingWrites) { pending in
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(pending.entry.content)
+                                .font(.body)
+                            Text("From \(pending.origin) • \(pending.entry.trustLevel.displayName)")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            HStack {
+                                Button("Approve") {
+                                    _ = memoryManager.approvePendingWrite(pending)
+                                    refreshTimeline()
+                                }
+                                .buttonStyle(.borderedProminent)
+                                Button("Dismiss") {
+                                    memoryManager.dismissPendingWrite(pending)
+                                }
+                                .buttonStyle(.bordered)
+                            }
+                        }
+                        Divider()
+                    }
+                }
+            }
+
             GroupBox("Pending Proposals") {
                 if memoryManager.pendingProposals.isEmpty {
                     Text("No pending proposals right now.")

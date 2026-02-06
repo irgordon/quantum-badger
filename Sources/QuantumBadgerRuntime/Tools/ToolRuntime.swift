@@ -95,6 +95,8 @@ actor ToolRuntime {
             var stopReason: LocalSearchStopReason = .completed
             do {
                 try accumulator.setValue(query, forKey: "query")
+                // Performance: reuse a single encoder to avoid per-match allocations.
+                let encoder = JSONEncoder()
                 let runResult = LocalSearchTool.runStreaming(
                     query: query,
                     bookmarkStore: bookmarkStore,
@@ -102,7 +104,7 @@ actor ToolRuntime {
                     maxFileBytes: limits.maxFileBytes
                 ) { match in
                     do {
-                        let data = try JSONEncoder().encode(match)
+                        let data = try encoder.encode(match)
                         let json = String(data: data, encoding: .utf8) ?? "{}"
                         try accumulator.appendJSONElement(json, toArrayKey: "matches")
                         return true

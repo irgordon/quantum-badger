@@ -6,28 +6,18 @@ public struct PromptRedactionResult {
 }
 
 public enum PromptRedactor {
-    private static let regexes: [NSRegularExpression] = {
-        let patterns = [
-            "\\b\\d{3}-\\d{2}-\\d{4}\\b",
-            "(?i)(api[_-]?key|secret|token)[^\\n\\r]{0,16}[:=][^\\s]{8,}",
-            "-----BEGIN (EC|RSA|OPENSSH|PRIVATE) KEY-----"
-        ]
-        return patterns.compactMap { pattern in
-            try? NSRegularExpression(pattern: pattern)
-        }
+    // Performance: compile a single alternation regex once, and run one pass replacement.
+    private static let redactionRegex: NSRegularExpression? = {
+        let pattern = "(?:\\b\\d{3}-\\d{2}-\\d{4}\\b|(?i:(?:api[_-]?key|secret|token)[^\\n\\r]{0,16}[:=][^\\s]{8,})|-----BEGIN (?:EC|RSA|OPENSSH|PRIVATE) KEY-----)"
+        return try? NSRegularExpression(pattern: pattern)
     }()
 
     public static func redact(_ input: String) -> PromptRedactionResult {
-        var text = input
-        var found = false
-        for regex in regexes {
-            let range = NSRange(text.startIndex..<text.endIndex, in: text)
-            if regex.firstMatch(in: text, range: range) != nil {
-                found = true
-                text = regex.stringByReplacingMatches(in: text, range: range, withTemplate: "[REDACTED]")
-            }
+        guard let regex = redactionRegex else {
+            return PromptRedactionResult(redactedText: input, hadSensitiveData: false)
         }
-
-        return PromptRedactionResult(redactedText: text, hadSensitiveData: found)
+        let range = NSRange(input.startIndex..<input.endIndex, in: input)
+        let redacted = regex.stringByReplacingMatches(in: input, range: range, withTemplate: "[REDACTED]")
+        return PromptRedactionResult(redactedText: redacted, hadSensitiveData: redacted != input)
     }
 }

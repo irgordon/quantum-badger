@@ -41,9 +41,11 @@ enum MemoryAddResult {
     case failed(MemoryValidationError)
 }
 
-enum MemoryWriteSource {
-    case userAction
-    case system
+struct PendingMemoryWrite: Identifiable {
+    let id: UUID
+    let entry: MemoryEntry
+    let origin: String
+    let createdAt: Date
 }
 
 @MainActor
@@ -51,6 +53,7 @@ enum MemoryWriteSource {
 final class MemoryManager {
     private(set) var ephemeralEntries: [MemoryEntry] = []
     private(set) var pendingProposals: [MemoryEntry] = []
+    private(set) var pendingWrites: [PendingMemoryWrite] = []
     private(set) var recoveryIssue: MemoryRecoveryIssue?
 
     private let modelContext: ModelContext
@@ -58,13 +61,20 @@ final class MemoryManager {
     private let auditLog: AuditLog
     private let observationStore: MemoryObservationStore
     private let summaryStore: MemorySummaryStore
+    private let writePolicy: MemoryWritePolicy
 
-    init(modelContext: ModelContext, keychain: KeychainStore = KeychainStore(), auditLog: AuditLog) {
+    init(
+        modelContext: ModelContext,
+        keychain: KeychainStore = KeychainStore(),
+        auditLog: AuditLog,
+        writePolicy: MemoryWritePolicy = MemoryWritePolicy()
+    ) {
         self.modelContext = modelContext
         self.keychain = keychain
         self.auditLog = auditLog
         self.observationStore = MemoryObservationStore()
         self.summaryStore = MemorySummaryStore()
+        self.writePolicy = writePolicy
     }
 
     func addEntry(_ entry: MemoryEntry, source: MemoryWriteSource = .system) -> MemoryAddResult {
@@ -76,10 +86,13 @@ final class MemoryManager {
             return .failed(.emptyContent)
         }
 
-        if entry.trustLevel != .level0Ephemeral && source != .userAction {
+        let decision = writePolicy.evaluate(entry: entry, source: source)
+        if !decision.isAllowed {
+            // Universal policy gate: no persistence without explicit user intent.
             let origin = entry.sourceDetail.isEmpty ? "tool output" : entry.sourceDetail
+            enqueuePendingWrite(entry: entry, origin: origin)
             SystemEventBus.shared.post(.memoryWriteNeedsConfirmation(origin: origin))
-            return .needsConfirmation
+            return decision.requiresUserConfirmation ? .needsConfirmation : .failed(.emptyContent)
         }
 
         switch entry.trustLevel {
@@ -90,7 +103,8 @@ final class MemoryManager {
             guard entry.isConfirmed else { return .needsConfirmation }
             return persistRecord(entry)
         case .level2UserConfirmed:
-            return .needsConfirmation
+            guard entry.isConfirmed else { return .needsConfirmation }
+            return persistRecord(entry)
         case .level3Observational:
             observationStore.add(entry)
             return .success
@@ -110,10 +124,7 @@ final class MemoryManager {
         var updated = entry
         updated.isConfirmed = true
         updated.confirmedAt = Date()
-        if updated.trustLevel == .level2UserConfirmed {
-            return persistRecord(updated)
-        }
-        return addEntry(updated)
+        return addEntry(updated, source: .userAction)
     }
 
     func deleteRecord(id: UUID) {
@@ -282,6 +293,40 @@ final class MemoryManager {
         }
     }
 
+    func exportTimeline(to url: URL) async -> Bool {
+        let tempURL = url.appendingPathExtension("tmp")
+        FileManager.default.createFile(atPath: tempURL.path, contents: nil)
+        guard let handle = try? FileHandle(forWritingTo: tempURL) else { return false }
+        defer { try? handle.close() }
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+
+        do {
+            try handle.write(contentsOf: Data("[".utf8))
+            var first = true
+            // Performance: stream entries to avoid loading the full timeline into memory.
+            for try await entry in streamTimelineEntries() {
+                let data = try encoder.encode(entry)
+                if !first {
+                    try handle.write(contentsOf: Data(",".utf8))
+                }
+                try handle.write(contentsOf: data)
+                first = false
+            }
+            try handle.write(contentsOf: Data("]".utf8))
+            if FileManager.default.fileExists(atPath: url.path) {
+                try FileManager.default.removeItem(at: url)
+            }
+            try FileManager.default.moveItem(at: tempURL, to: url)
+            return true
+        } catch {
+            AppLogger.storage.error("Failed to export memory timeline: \(error.localizedDescription, privacy: .private)")
+            return false
+        }
+    }
+
     func loadTimelinePage(limit: Int, offset: Int) async -> [MemoryEntry] {
         let safeLimit = max(1, min(limit, 500))
         let safeOffset = max(0, offset)
@@ -353,6 +398,18 @@ final class MemoryManager {
 
     func dismissProposal(_ entry: MemoryEntry) {
         pendingProposals.removeAll { $0.id == entry.id }
+    }
+
+    func approvePendingWrite(_ pending: PendingMemoryWrite) -> MemoryAddResult {
+        pendingWrites.removeAll { $0.id == pending.id }
+        if pending.entry.trustLevel == .level1UserAuthored || pending.entry.trustLevel == .level2UserConfirmed {
+            return confirmAndStore(pending.entry)
+        }
+        return addEntry(pending.entry, source: .userAction)
+    }
+
+    func dismissPendingWrite(_ pending: PendingMemoryWrite) {
+        pendingWrites.removeAll { $0.id == pending.id }
     }
 
     @MainActor
@@ -457,6 +514,7 @@ final class MemoryManager {
 
     func resetVault() {
         pendingProposals = []
+        pendingWrites = []
         ephemeralEntries = []
         observationStore.reset()
         summaryStore.reset()
@@ -473,7 +531,22 @@ final class MemoryManager {
 
     func clearEphemeralCache() {
         pendingProposals = []
+        pendingWrites = []
         ephemeralEntries = []
+    }
+
+    private func enqueuePendingWrite(entry: MemoryEntry, origin: String) {
+        if pendingWrites.contains(where: { $0.entry.id == entry.id }) {
+            return
+        }
+        pendingWrites.append(
+            PendingMemoryWrite(
+                id: UUID(),
+                entry: entry,
+                origin: origin,
+                createdAt: Date()
+            )
+        )
     }
 
     private func isHighEntropy(_ value: String) -> Bool {

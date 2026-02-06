@@ -4,6 +4,9 @@ import CryptoKit
 final class MemorySummaryStore {
     private let storageURL: URL
     private let keychain: KeychainStore
+    // Performance: cache decrypted entries to avoid disk I/O + re-decryption on every read.
+    private var cachedEncrypted: [EncryptedMemoryEntry]?
+    private var cachedDecrypted: [MemoryEntry]?
 
     init(storageURL: URL = AppPaths.memorySummaryURL, keychain: KeychainStore = KeychainStore()) {
         self.storageURL = storageURL
@@ -11,45 +14,69 @@ final class MemorySummaryStore {
     }
 
     func add(_ entry: MemoryEntry) {
-        var items = encryptedEntries()
-        if let encrypted = encrypt(entry) {
-            items.append(encrypted)
-            persist(items)
+        guard let encrypted = encrypt(entry) else { return }
+        loadCachesIfNeeded()
+        var items = cachedEncrypted ?? []
+        items.append(encrypted)
+        cachedEncrypted = items
+        if cachedDecrypted == nil {
+            cachedDecrypted = items.compactMap { decrypt($0) }
+        } else {
+            cachedDecrypted?.append(entry)
         }
+        persistCachedEncrypted()
     }
 
     func entries() -> [MemoryEntry] {
-        return encryptedEntries().compactMap { decrypt($0) }
+        loadCachesIfNeeded()
+        return cachedDecrypted ?? []
     }
 
     func purgeExpired() {
+        loadCachesIfNeeded()
         let now = Date()
-        let filtered = encryptedEntries().filter { entry in
+        let filtered = (cachedEncrypted ?? []).filter { entry in
             if let expiresAt = entry.expiresAt { return expiresAt > now }
             return true
         }
-        persist(filtered)
+        cachedEncrypted = filtered
+        if let decrypted = cachedDecrypted {
+            let validIds = Set(filtered.map(\.id))
+            cachedDecrypted = decrypted.filter { validIds.contains($0.id) }
+        } else {
+            cachedDecrypted = filtered.compactMap { decrypt($0) }
+        }
+        persistCachedEncrypted()
     }
 
     func delete(_ entry: MemoryEntry) {
-        let filtered = encryptedEntries().filter { $0.id != entry.id }
-        persist(filtered)
+        loadCachesIfNeeded()
+        let filtered = (cachedEncrypted ?? []).filter { $0.id != entry.id }
+        cachedEncrypted = filtered
+        cachedDecrypted = (cachedDecrypted ?? []).filter { $0.id != entry.id }
+        persistCachedEncrypted()
     }
 
     func reset() {
-        persist([])
+        cachedEncrypted = []
+        cachedDecrypted = []
+        persistCachedEncrypted()
     }
 
-    private func encryptedEntries() -> [EncryptedMemoryEntry] {
+    private func loadCachesIfNeeded() {
+        if cachedEncrypted != nil && cachedDecrypted != nil { return }
         guard let data = try? Data(contentsOf: storageURL),
               let decoded = try? JSONDecoder().decode([EncryptedMemoryEntry].self, from: data) else {
-            return []
+            cachedEncrypted = []
+            cachedDecrypted = []
+            return
         }
-        return decoded
+        cachedEncrypted = decoded
+        cachedDecrypted = decoded.compactMap { decrypt($0) }
     }
 
-    private func persist(_ entries: [EncryptedMemoryEntry]) {
-        if let data = try? JSONEncoder().encode(entries) {
+    private func persistCachedEncrypted() {
+        if let data = try? JSONEncoder().encode(cachedEncrypted ?? []) {
             try? JSONStore.writeAtomically(data: data, to: storageURL)
         }
     }
