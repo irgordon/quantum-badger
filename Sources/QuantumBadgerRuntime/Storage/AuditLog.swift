@@ -33,15 +33,50 @@ final class AuditLog {
     func export(to url: URL, option: ExportOption) async -> Bool {
         record(event: .exportRequested)
         do {
-            let data = try JSONEncoder().encode(entries)
             if option.isEncrypted {
+                let data = try JSONEncoder().encode(entries)
                 guard let password = option.password else { return false }
                 let envelope = try ExportEnvelope.seal(data: data, password: password)
                 let payload = try JSONEncoder().encode(envelope)
                 try JSONStore.writeAtomically(data: payload, to: url)
             } else {
-                try JSONStore.writeAtomically(data: data, to: url)
+                return exportUnencryptedStreaming(to: url)
             }
+            return true
+        } catch {
+            AppLogger.storage.error("Failed to export audit log: \(error.localizedDescription, privacy: .private)")
+            return false
+        }
+    }
+
+    private func exportUnencryptedStreaming(to url: URL) -> Bool {
+        let tempURL = url.appendingPathExtension("tmp")
+        FileManager.default.createFile(atPath: tempURL.path, contents: nil)
+        guard let handle = try? FileHandle(forWritingTo: tempURL) else { return false }
+        defer {
+            try? handle.close()
+        }
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+
+        do {
+            try handle.write(contentsOf: Data("[".utf8))
+            var first = true
+            for entry in entries {
+                let data = try encoder.encode(entry)
+                if !first {
+                    try handle.write(contentsOf: Data(",".utf8))
+                }
+                try handle.write(contentsOf: data)
+                first = false
+            }
+            try handle.write(contentsOf: Data("]".utf8))
+            if FileManager.default.fileExists(atPath: url.path) {
+                try FileManager.default.removeItem(at: url)
+            }
+            try FileManager.default.moveItem(at: tempURL, to: url)
             return true
         } catch {
             AppLogger.storage.error("Failed to export audit log: \(error.localizedDescription, privacy: .private)")

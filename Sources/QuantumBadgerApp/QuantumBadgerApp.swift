@@ -88,6 +88,8 @@ struct QuantumBadgerApp: App {
         MenuBarExtra {
             if let appState, !isSafeMode {
                 @Bindable var openCircuitsStore = appState.openCircuitsStore
+                @Bindable var toolLimitsStore = appState.toolLimitsStore
+                @Bindable var parsingPolicy = appState.untrustedParsingPolicy
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 8) {
                         Image(systemName: modelModeIcon())
@@ -96,6 +98,58 @@ struct QuantumBadgerApp: App {
                     HStack(spacing: 8) {
                         Image(systemName: networkIcon())
                         Text(networkText())
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("DB Query Limit")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        HStack(spacing: 8) {
+                            Text("\(toolLimitsStore.dbQueryMaxTokens) tokens")
+                                .font(.caption)
+                            Stepper(
+                                value: $toolLimitsStore.dbQueryMaxTokens,
+                                in: 64...4096,
+                                step: 64
+                            ) {
+                                EmptyView()
+                            }
+                            .labelsHidden()
+                            .controlSize(.small)
+                            .accessibilityLabel("Max database query tokens")
+                        }
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Parser Limits")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        HStack(spacing: 8) {
+                            Text("Time: \(String(format: "%.1f", parsingPolicy.maxParseSeconds))s")
+                                .font(.caption)
+                            Stepper(
+                                value: $parsingPolicy.maxParseSeconds,
+                                in: 0.1...2.0,
+                                step: 0.1
+                            ) {
+                                EmptyView()
+                            }
+                            .labelsHidden()
+                            .controlSize(.small)
+                            .accessibilityLabel("Max parse time")
+                        }
+                        HStack(spacing: 8) {
+                            Text("Anchors: \(parsingPolicy.maxAnchorScans)")
+                                .font(.caption)
+                            Stepper(
+                                value: $parsingPolicy.maxAnchorScans,
+                                in: 50...5000,
+                                step: 50
+                            ) {
+                                EmptyView()
+                            }
+                            .labelsHidden()
+                            .controlSize(.small)
+                            .accessibilityLabel("Max anchor scans")
+                        }
                     }
                     if !openCircuitsStore.openCircuits.isEmpty {
                         VStack(alignment: .leading, spacing: 4) {
@@ -127,6 +181,7 @@ struct QuantumBadgerApp: App {
         } label: {
             if let appState, !isSafeMode {
                 @Bindable var openCircuitsStore = appState.openCircuitsStore
+                @Bindable var parsingPolicy = appState.untrustedParsingPolicy
                 HStack(spacing: 6) {
                     Image(systemName: modelModeIcon())
                     Text(modelModeText())
@@ -134,6 +189,11 @@ struct QuantumBadgerApp: App {
                         .foregroundColor(.secondary)
                     Image(systemName: networkIcon())
                     Text(networkText())
+                    Text("•")
+                        .foregroundColor(.secondary)
+                    Text("Parse \(String(format: "%.1f", parsingPolicy.maxParseSeconds))s/\(parsingPolicy.maxAnchorScans)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                     if !openCircuitsStore.openCircuits.isEmpty {
                         Text("•")
                             .foregroundColor(.secondary)
@@ -238,21 +298,22 @@ struct RootView: View {
         NavigationSplitView {
             SidebarView(selected: $appState.navigationSelection)
         } detail: {
-            DetailView(
-                selection: appState.navigationSelection,
-                orchestrator: appState.runtimeCapabilities.orchestrator,
-                auditLog: appState.storageCapabilities.auditLog,
-                vaultStore: appState.storageCapabilities.vaultStore,
-                modelRegistry: appState.modelCapabilities.modelRegistry,
-                modelSelection: appState.modelCapabilities.modelSelection,
-                resourcePolicy: appState.modelCapabilities.resourcePolicy,
-                modelLoader: appState.modelCapabilities.modelLoader,
-                securityCapabilities: appState.securityCapabilities,
-                reachability: appState.reachability,
-                bookmarkStore: appState.storageCapabilities.bookmarkStore,
-                memoryManager: appState.storageCapabilities.memoryManager,
-                exportAction: appState.exportAuditLog
-            )
+        DetailView(
+            selection: appState.navigationSelection,
+            orchestrator: appState.runtimeCapabilities.orchestrator,
+            auditLog: appState.storageCapabilities.auditLog,
+            vaultStore: appState.storageCapabilities.vaultStore,
+            modelRegistry: appState.modelCapabilities.modelRegistry,
+            modelSelection: appState.modelCapabilities.modelSelection,
+            resourcePolicy: appState.modelCapabilities.resourcePolicy,
+            modelLoader: appState.modelCapabilities.modelLoader,
+            securityCapabilities: appState.securityCapabilities,
+            reachability: appState.reachability,
+            bookmarkStore: appState.storageCapabilities.bookmarkStore,
+            memoryManager: appState.storageCapabilities.memoryManager,
+            exportAction: appState.exportAuditLog,
+            settingsSelection: $appState.settingsSelection
+        )
         }
         .navigationTitle("Quantum Badger")
         .toolbar {
@@ -391,6 +452,7 @@ struct DetailView: View {
     let bookmarkStore: BookmarkStore
     let memoryManager: MemoryManager
     let exportAction: @MainActor () async -> Void
+    let settingsSelection: Binding<SettingsTab>
 
     var body: some View {
         switch selection {
@@ -405,7 +467,8 @@ struct DetailView: View {
                 vaultStore: vaultStore,
                 auditLog: auditLog,
                 policy: securityCapabilities.policy,
-                toolApprovalManager: securityCapabilities.toolApprovalManager
+                toolApprovalManager: securityCapabilities.toolApprovalManager,
+                toolLimitsStore: securityCapabilities.toolLimitsStore
             )
         case .timeline:
             TimelineView(auditLog: auditLog)
@@ -433,7 +496,8 @@ struct DetailView: View {
                 untrustedParsingPolicy: appState.untrustedParsingPolicy,
                 messagingPolicy: appState.messagingPolicy,
                 webFilterStore: appState.webFilterStore,
-                openCircuitsStore: appState.openCircuitsStore
+                openCircuitsStore: appState.openCircuitsStore,
+                selectedTab: settingsSelection
             )
         }
     }

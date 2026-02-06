@@ -7,6 +7,7 @@ enum SystemEvent {
     case networkCircuitOpened(host: String, until: Date)
     case networkCircuitClosed(host: String)
     case decodingSkipped(count: Int, source: String?)
+    case memoryWriteNeedsConfirmation(origin: String)
 }
 
 final class SystemEventBus {

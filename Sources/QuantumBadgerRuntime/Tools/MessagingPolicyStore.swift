@@ -8,16 +8,18 @@ final class MessagingPolicyStore {
     private(set) var trustedContacts: [TrustedContact]
     private(set) var maxMessagesPerMinute: Int
     private var messageTimestamps: [Date] = []
+    private var didMutate: Bool = false
 
     init(storageURL: URL = AppPaths.messagingPolicyURL) {
         self.storageURL = storageURL
         let defaults = MessagingPolicySnapshot(trustedContacts: [], maxMessagesPerMinute: 5)
-        let snapshot = JSONStore.load(MessagingPolicySnapshot.self, from: storageURL, defaultValue: defaults)
-        self.trustedContacts = snapshot.trustedContacts
-        self.maxMessagesPerMinute = max(1, min(snapshot.maxMessagesPerMinute, 20))
+        self.trustedContacts = defaults.trustedContacts
+        self.maxMessagesPerMinute = max(1, min(defaults.maxMessagesPerMinute, 20))
+        loadAsync(defaults: defaults)
     }
 
     func addContact(name: String, handle: String, conversationKey: String?) {
+        didMutate = true
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedHandle = handle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty, !trimmedHandle.isEmpty else { return }
@@ -29,6 +31,7 @@ final class MessagingPolicyStore {
     }
 
     func removeContact(_ contact: TrustedContact) {
+        didMutate = true
         trustedContacts.removeAll { $0.id == contact.id }
         persist()
     }
@@ -62,6 +65,7 @@ final class MessagingPolicyStore {
     }
 
     func setMaxMessagesPerMinute(_ value: Int) {
+        didMutate = true
         maxMessagesPerMinute = max(1, min(value, 20))
         persist()
     }
@@ -87,6 +91,18 @@ final class MessagingPolicyStore {
             maxMessagesPerMinute: maxMessagesPerMinute
         )
         try? JSONStore.save(snapshot, to: storageURL)
+    }
+
+    private func loadAsync(defaults: MessagingPolicySnapshot) {
+        let storageURL = storageURL
+        Task.detached(priority: .utility) { [weak self] in
+            let snapshot = JSONStore.load(MessagingPolicySnapshot.self, from: storageURL, defaultValue: defaults)
+            await MainActor.run {
+                guard let self, !self.didMutate else { return }
+                self.trustedContacts = snapshot.trustedContacts
+                self.maxMessagesPerMinute = max(1, min(snapshot.maxMessagesPerMinute, 20))
+            }
+        }
     }
 }
 

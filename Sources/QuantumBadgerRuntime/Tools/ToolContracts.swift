@@ -29,12 +29,14 @@ struct ToolExecutionLimits: Codable {
     var maxOutputBytes: Int
     var maxFileBytes: Int
     var maxMatches: Int
+    var maxQueryTokens: Int
 
     static let `default` = ToolExecutionLimits(
         timeoutSeconds: 10,
         maxOutputBytes: 200_000,
         maxFileBytes: 2_000_000,
-        maxMatches: 100
+        maxMatches: 100,
+        maxQueryTokens: 512
     )
 }
 
@@ -53,7 +55,8 @@ enum ToolCatalog {
                 timeoutSeconds: 4,
                 maxOutputBytes: 200_000,
                 maxFileBytes: 2_000_000,
-                maxMatches: 100
+                maxMatches: 100,
+                maxQueryTokens: 0
             ),
             requiresSecureInjection: false
         ),
@@ -106,7 +109,8 @@ enum ToolCatalog {
                 timeoutSeconds: 3,
                 maxOutputBytes: 50_000,
                 maxFileBytes: 0,
-                maxMatches: 0
+                maxMatches: 0,
+                maxQueryTokens: 0
             ),
             requiresSecureInjection: false
         ),
@@ -123,7 +127,8 @@ enum ToolCatalog {
                 timeoutSeconds: 5,
                 maxOutputBytes: 200_000,
                 maxFileBytes: 20_000_000,
-                maxMatches: 0
+                maxMatches: 0,
+                maxQueryTokens: 512
             ),
             requiresSecureInjection: true
         ),
@@ -140,7 +145,8 @@ enum ToolCatalog {
                 timeoutSeconds: 6,
                 maxOutputBytes: 10_000,
                 maxFileBytes: 0,
-                maxMatches: 0
+                maxMatches: 0,
+                maxQueryTokens: 0
             ),
             requiresSecureInjection: false
         ),
@@ -157,7 +163,8 @@ enum ToolCatalog {
                 timeoutSeconds: 8,
                 maxOutputBytes: 1_000_000,
                 maxFileBytes: 0,
-                maxMatches: 0
+                maxMatches: 0,
+                maxQueryTokens: 0
             ),
             requiresSecureInjection: false
         )

@@ -7,6 +7,7 @@ final class ModelRegistry {
     private(set) var limits: ModelLimits
     private var lockedModelIds: Set<UUID> = []
     private let persistQueue = DispatchQueue(label: "com.quantumbadger.modelregistry.persist", qos: .utility)
+    private var didMutate: Bool = false
 
     private let storageURL: URL
     private let checksumURL: URL
@@ -31,12 +32,13 @@ final class ModelRegistry {
             models: [],
             limits: ModelLimits(maxContextTokens: 8192, maxTemperature: 1.2, maxTokens: 2048)
         )
-        let snapshot = loadSnapshot(defaults: defaults)
-        self.models = snapshot.models
-        self.limits = snapshot.limits
+        self.models = defaults.models
+        self.limits = defaults.limits
+        loadAsync(defaults: defaults)
     }
 
     func addModel(_ model: LocalModel) {
+        didMutate = true
         models.append(model)
         persist()
         auditLog.record(event: .modelAdded(model))
@@ -48,6 +50,7 @@ final class ModelRegistry {
             AppLogger.security.error("Attempted to remove a locked model.", privacy: .private)
             return false
         }
+        didMutate = true
         models.removeAll { $0.id == model.id }
         persist()
         auditLog.record(event: .modelRemoved(model))
@@ -56,6 +59,7 @@ final class ModelRegistry {
 
     func updateModel(_ model: LocalModel) {
         guard let index = models.firstIndex(where: { $0.id == model.id }) else { return }
+        didMutate = true
         models[index] = model
         persist()
         auditLog.record(event: .modelUpdated(model))
@@ -99,6 +103,7 @@ final class ModelRegistry {
     }
 
     func updateLimits(_ limits: ModelLimits) {
+        didMutate = true
         self.limits = limits
         persist()
         auditLog.record(event: .limitsUpdated(limits))
@@ -180,6 +185,18 @@ final class ModelRegistry {
         }
         AppLogger.storage.error("Model registry corrupted; resetting to defaults.")
         return defaults
+    }
+
+    private func loadAsync(defaults: RegistrySnapshot) {
+        Task.detached(priority: .utility) { [weak self] in
+            guard let self else { return }
+            let snapshot = self.loadSnapshot(defaults: defaults)
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.didMutate else { return }
+                self.models = snapshot.models
+                self.limits = snapshot.limits
+            }
+        }
     }
 
     private func loadVerifiedSnapshot(from url: URL, checksumURL: URL) -> RegistrySnapshot? {

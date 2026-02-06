@@ -20,8 +20,8 @@ public enum PromptRedactor {
     public static func redact(_ input: String) -> PromptRedactionResult {
         var text = input
         var found = false
-        let range = NSRange(text.startIndex..<text.endIndex, in: text)
         for regex in regexes {
+            let range = NSRange(text.startIndex..<text.endIndex, in: text)
             if regex.firstMatch(in: text, range: range) != nil {
                 found = true
                 text = regex.stringByReplacingMatches(in: text, range: range, withTemplate: "[REDACTED]")

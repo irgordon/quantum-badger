@@ -88,6 +88,7 @@ final class NetworkPolicyStore {
     private var purposeExpirations: [NetworkPurpose: Date]
     private let storageURL: URL
     private let auditLog: AuditLog?
+    private var didMutate: Bool = false
 
     init(
         storageURL: URL = AppPaths.networkPolicyURL,
@@ -106,17 +107,17 @@ final class NetworkPolicyStore {
             defaultSessionMinutes: defaultSessionMinutes,
             avoidAutoSwitchOnExpensive: avoidAutoSwitchOnExpensive
         )
-        let snapshot = JSONStore.load(PolicySnapshot.self, from: storageURL, defaultValue: defaults)
-
-        let migrated = Self.migrate(snapshot)
-        self.enabledPurposes = migrated.enabledPurposes
-        self.endpoints = migrated.endpoints
-        self.defaultSessionMinutes = migrated.defaultSessionMinutes
-        self.avoidAutoSwitchOnExpensive = migrated.avoidAutoSwitchOnExpensive
+        self.enabledPurposes = defaults.enabledPurposes
+        self.endpoints = defaults.endpoints
+        self.defaultSessionMinutes = defaults.defaultSessionMinutes
+        self.avoidAutoSwitchOnExpensive = defaults.avoidAutoSwitchOnExpensive
         self.purposeExpirations = [:]
+
+        loadAsync(defaults: defaults)
     }
 
     func setPurpose(_ purpose: NetworkPurpose, enabled: Bool) {
+        didMutate = true
         if enabled {
             enabledPurposes.insert(purpose)
         } else {
@@ -127,6 +128,7 @@ final class NetworkPolicyStore {
     }
 
     func enablePurpose(_ purpose: NetworkPurpose, for minutes: Int) {
+        didMutate = true
         let clampedMinutes = max(1, min(minutes, 180))
         enabledPurposes.insert(purpose)
         purposeExpirations[purpose] = Date().addingTimeInterval(TimeInterval(clampedMinutes * 60))
@@ -143,16 +145,19 @@ final class NetworkPolicyStore {
     }
 
     func setEndpoints(_ endpoints: [NetworkEndpointPolicy]) {
+        didMutate = true
         self.endpoints = endpoints
         persist()
     }
 
     func setDefaultSessionMinutes(_ minutes: Int) {
+        didMutate = true
         defaultSessionMinutes = max(1, min(minutes, 180))
         persist()
     }
 
     func setAvoidAutoSwitchOnExpensive(_ value: Bool) {
+        didMutate = true
         avoidAutoSwitchOnExpensive = value
         persist()
     }
@@ -169,12 +174,28 @@ final class NetworkPolicyStore {
         let snapshot = PolicySnapshot(
             enabledPurposes: enabledPurposes,
             endpoints: endpoints,
-            defaultSessionMinutes: defaultSessionMinutes
+            defaultSessionMinutes: defaultSessionMinutes,
+            avoidAutoSwitchOnExpensive: avoidAutoSwitchOnExpensive
         )
         do {
             try JSONStore.save(snapshot, to: storageURL)
         } catch {
             AppLogger.storage.error("Failed to persist network policy: \(error.localizedDescription, privacy: .private)")
+        }
+    }
+
+    private func loadAsync(defaults: PolicySnapshot) {
+        let storageURL = storageURL
+        Task.detached(priority: .utility) { [weak self] in
+            let snapshot = JSONStore.load(PolicySnapshot.self, from: storageURL, defaultValue: defaults)
+            let migrated = Self.migrate(snapshot)
+            await MainActor.run {
+                guard let self, !self.didMutate else { return }
+                self.enabledPurposes = migrated.enabledPurposes
+                self.endpoints = migrated.endpoints
+                self.defaultSessionMinutes = migrated.defaultSessionMinutes
+                self.avoidAutoSwitchOnExpensive = migrated.avoidAutoSwitchOnExpensive
+            }
         }
     }
 

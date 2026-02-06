@@ -424,6 +424,9 @@ enum IPAddress {
         switch value {
         case .ipv4(let address):
             let bytes = [UInt8](address.rawValue)
+            if bytes == [0, 0, 0, 0] {
+                return true
+            }
             switch bytes[0] {
             case 10:
                 return true
@@ -440,6 +443,9 @@ enum IPAddress {
             }
         case .ipv6(let address):
             let bytes = [UInt8](address.rawValue)
+            if bytes == [UInt8](repeating: 0, count: 16) {
+                return true
+            }
             if bytes[0] == 0xfe && (bytes[1] & 0xc0) == 0x80 {
                 return true
             }

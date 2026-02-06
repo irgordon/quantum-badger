@@ -11,6 +11,7 @@ actor ToolRuntime {
     let messagingPolicy: MessagingPolicyStore
     let networkClient: NetworkClient
     let webFilterStore: WebFilterStore
+    let toolLimitsStore: ToolLimitsStore?
     private let secretRedactor = SecretRedactor()
 
     init(
@@ -23,7 +24,8 @@ actor ToolRuntime {
         messagingAdapter: MessagingAdapter = DisabledMessagingAdapter(),
         messagingPolicy: MessagingPolicyStore,
         networkClient: NetworkClient,
-        webFilterStore: WebFilterStore
+        webFilterStore: WebFilterStore,
+        toolLimitsStore: ToolLimitsStore? = nil
     ) {
         self.policy = policy
         self.auditLog = auditLog
@@ -35,6 +37,7 @@ actor ToolRuntime {
         self.messagingPolicy = messagingPolicy
         self.networkClient = networkClient
         self.webFilterStore = webFilterStore
+        self.toolLimitsStore = toolLimitsStore
     }
 
     func run(_ request: ToolRequest) async -> ToolResult {
@@ -46,7 +49,10 @@ actor ToolRuntime {
             return result
         }
 
-        let limits = contract?.limits ?? .default
+        let baseLimits = contract?.limits ?? .default
+        let limits = await MainActor.run {
+            toolLimitsStore?.limits(for: request.toolName, fallback: baseLimits) ?? baseLimits
+        }
         auditLog.record(event: .toolStarted(request))
 
         do {

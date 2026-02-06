@@ -5,79 +5,64 @@ import Security
 final class UntrustedParsingService: NSObject, UntrustedParsingXPCProtocol {
     private let maxInputBytes = 1_000_000
     private let maxResults = 10
+    private let defaultAllowedTags = Set(UntrustedParsingPolicyStore.strictTags)
 
-    func parse(_ data: Data, withReply reply: @escaping (String?, String?) -> Void) {
+    func parse(
+        _ data: Data,
+        allowlist: [String],
+        maxParseSeconds: Double,
+        maxAnchorScans: Int,
+        withReply reply: @escaping (String?, String?) -> Void
+    ) {
         guard data.count <= maxInputBytes else {
             reply(nil, "Input too large for safe parsing.")
             return
         }
         let text = String(data: data, encoding: .utf8) ?? ""
-        let parsedResults = parseDuckDuckGoResults(html: text)
-        let output = parsedResults.isEmpty ? sanitizeHTML(text) : parsedResults
+        let clampedSeconds = max(0.1, min(maxParseSeconds, 2.0))
+        let clampedAnchors = max(50, min(maxAnchorScans, 5000))
+        let deadline = Date().addingTimeInterval(clampedSeconds)
+        let parsedResults = parseDuckDuckGoResults(
+            html: text,
+            deadline: deadline,
+            maxAnchorScans: clampedAnchors
+        )
+        let output = parsedResults.isEmpty ? sanitizeHTML(text, allowlist: allowlist) : parsedResults
         let preview = String(output.prefix(1_000_000))
         reply(preview, nil)
     }
 
-    private func parseDuckDuckGoResults(html: String) -> String {
+    private func parseDuckDuckGoResults(html: String, deadline: Date, maxAnchorScans: Int) -> String {
         guard html.contains("result__a") else { return "" }
         var results: [[String: String]] = []
         var index = html.startIndex
+        var scanCount = 0
 
-        while results.count < maxResults,
-              let anchorRange = html.range(of: "result__a", range: index..<html.endIndex) {
-            guard let tagStart = html.range(of: "<a", range: html.startIndex..<anchorRange.lowerBound) else {
-                index = anchorRange.upperBound
-                continue
-            }
-            guard let tagEnd = html.range(of: ">", range: anchorRange.upperBound..<html.endIndex) else {
-                index = anchorRange.upperBound
-                continue
-            }
+        while results.count < maxResults {
+            if Date() >= deadline { break }
+            if scanCount >= maxAnchorScans { break }
+            scanCount += 1
+            guard let anchor = findNextAnchor(in: html, from: index) else { break }
+            index = anchor.searchIndex
 
-            let tagSlice = html[tagStart.lowerBound..<tagEnd.upperBound]
-            let href = extractAttribute("href", from: String(tagSlice)) ?? ""
+            guard let href = anchor.href, isSafeURL(href) else { continue }
+            guard let title = anchor.title, !title.isEmpty else { continue }
 
-            let titleStart = tagEnd.upperBound
-            guard let titleEnd = html.range(of: "</a>", range: titleStart..<html.endIndex) else {
-                index = tagEnd.upperBound
-                continue
-            }
-            let rawTitle = String(html[titleStart..<titleEnd.lowerBound])
-            let title = stripTags(rawTitle)
+            var item: [String: String] = [
+                "title": title,
+                "url": href
+            ]
 
-            let snippet = extractSnippet(after: titleEnd.upperBound, html: html)
-
-            if !title.isEmpty {
-                var item: [String: String] = ["title": title]
-                if !href.isEmpty { item["url"] = href }
-                if !snippet.isEmpty { item["snippet"] = snippet }
-                results.append(item)
+            if let snippet = extractSnippet(after: anchor.anchorCloseIndex, html: html),
+               !snippet.isEmpty {
+                item["snippet"] = snippet
             }
 
-            index = titleEnd.upperBound
+            results.append(item)
         }
 
         let data = (try? JSONSerialization.data(withJSONObject: results, options: [])) ?? Data()
         return String(data: data, encoding: .utf8) ?? ""
-    }
-
-    private func extractSnippet(after index: String.Index, html: String) -> String {
-        let snippetMarkers = ["result__snippet", "result__snippet", "result__snippet"]
-        var searchIndex = index
-        for marker in snippetMarkers {
-            if let markerRange = html.range(of: marker, range: searchIndex..<html.endIndex) {
-                if let tagStart = html.range(of: ">", range: markerRange.upperBound..<html.endIndex),
-                   let tagEnd = html.range(of: "<", range: tagStart.upperBound..<html.endIndex) {
-                    let raw = String(html[tagStart.upperBound..<tagEnd.lowerBound])
-                    let cleaned = stripTags(raw)
-                    if !cleaned.isEmpty {
-                        return cleaned
-                    }
-                }
-                searchIndex = markerRange.upperBound
-            }
-        }
-        return ""
     }
 
     private func extractAttribute(_ name: String, from tag: String) -> String? {
@@ -86,6 +71,158 @@ final class UntrustedParsingService: NSObject, UntrustedParsingXPCProtocol {
         let valueStart = start.upperBound
         guard let end = tag.range(of: "\"", range: valueStart..<tag.endIndex) else { return nil }
         return String(tag[valueStart..<end.lowerBound])
+    }
+
+    private struct AnchorParseResult {
+        let href: String?
+        let title: String?
+        let anchorCloseIndex: String.Index
+        let searchIndex: String.Index
+    }
+
+    private func findNextAnchor(in html: String, from start: String.Index) -> AnchorParseResult? {
+        var index = start
+        let end = html.endIndex
+
+        while index < end {
+            guard let tagStart = html[index...].firstIndex(of: "<") else { return nil }
+            index = tagStart
+            let next = html.index(after: tagStart)
+            guard next < end else { return nil }
+            let char = html[next]
+            if char != "a" && char != "A" {
+                index = html.index(after: tagStart)
+                continue
+            }
+            guard let tagEnd = html[next...].firstIndex(of: ">") else { return nil }
+            if html.distance(from: tagStart, to: tagEnd) > 2048 {
+                index = html.index(after: tagEnd)
+                continue
+            }
+
+            let tagContent = html[html.index(after: tagStart)..<tagEnd]
+            guard let tagName = parseTagName(from: tagContent).name, tagName == "a" else {
+                index = html.index(after: tagEnd)
+                continue
+            }
+            let attrs = parseAttributes(String(tagContent))
+            guard let classValue = attrs["class"],
+                  classValue.split(separator: " ").contains(where: { $0 == "result__a" }) else {
+                index = html.index(after: tagEnd)
+                continue
+            }
+            let href = attrs["href"]
+
+            let titleStart = html.index(after: tagEnd)
+            guard let close = html.range(of: "</a>", range: titleStart..<end) else {
+                index = html.index(after: tagEnd)
+                continue
+            }
+            let rawTitle = String(html[titleStart..<close.lowerBound])
+            let title = decodeHTMLEntities(in: stripTags(rawTitle))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            let searchIndex = close.upperBound
+            return AnchorParseResult(
+                href: href,
+                title: title.isEmpty ? nil : String(title.prefix(300)),
+                anchorCloseIndex: close.upperBound,
+                searchIndex: searchIndex
+            )
+        }
+
+        return nil
+    }
+
+    private func parseAttributes(_ tag: String) -> [String: String] {
+        var attributes: [String: String] = [:]
+        var index = tag.startIndex
+        let end = tag.endIndex
+
+        func skipWhitespace() {
+            while index < end, tag[index].isWhitespace { index = tag.index(after: index) }
+        }
+
+        while index < end {
+            skipWhitespace()
+            let nameStart = index
+            while index < end, (tag[index].isLetter || tag[index].isNumber || tag[index] == "-" || tag[index] == "_") {
+                index = tag.index(after: index)
+            }
+            let name = String(tag[nameStart..<index]).lowercased()
+            skipWhitespace()
+            guard !name.isEmpty, index < end, tag[index] == "=" else {
+                if index < end { index = tag.index(after: index) }
+                continue
+            }
+            index = tag.index(after: index)
+            skipWhitespace()
+            guard index < end else { break }
+            let quote = tag[index]
+            guard quote == "\"" || quote == "'" else {
+                while index < end, !tag[index].isWhitespace { index = tag.index(after: index) }
+                continue
+            }
+            index = tag.index(after: index)
+            let valueStart = index
+            while index < end, tag[index] != quote {
+                index = tag.index(after: index)
+            }
+            let value = String(tag[valueStart..<index])
+            attributes[name] = value
+            if index < end { index = tag.index(after: index) }
+        }
+
+        return attributes
+    }
+
+    private func extractSnippet(after start: String.Index, html: String) -> String? {
+        let end = html.endIndex
+        var index = start
+        let allowedSnippetClasses = Set(["result__snippet", "result__content", "result__body"])
+
+        while index < end {
+            guard let tagStart = html[index...].firstIndex(of: "<") else { return nil }
+            let next = html.index(after: tagStart)
+            guard next < end else { return nil }
+            if html[next] == "/" {
+                index = html.index(after: next)
+                continue
+            }
+            guard let tagEnd = html[next...].firstIndex(of: ">") else { return nil }
+            if html.distance(from: tagStart, to: tagEnd) > 2048 {
+                index = html.index(after: tagEnd)
+                continue
+            }
+            let tagContent = html[html.index(after: tagStart)..<tagEnd]
+            let tagNameInfo = parseTagName(from: tagContent)
+            guard let tagName = tagNameInfo.name else {
+                index = html.index(after: tagEnd)
+                continue
+            }
+            let attrs = parseAttributes(String(tagContent))
+            if let classValue = attrs["class"] {
+                let classes = Set(classValue.split(separator: " ").map { String($0) })
+                if !classes.isDisjoint(with: allowedSnippetClasses) {
+                    let contentStart = html.index(after: tagEnd)
+                    if let closeRange = html.range(of: "</\(tagName)>", range: contentStart..<end) {
+                        let rawSnippet = String(html[contentStart..<closeRange.lowerBound])
+                        let snippet = decodeHTMLEntities(in: stripTags(rawSnippet))
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                        return snippet.isEmpty ? nil : String(snippet.prefix(360))
+                    }
+                }
+            }
+            index = html.index(after: tagEnd)
+        }
+        return nil
+    }
+
+    private func isSafeURL(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmed) else { return false }
+        guard let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme) else { return false }
+        return url.host != nil
     }
 
     private func stripTags(_ input: String) -> String {
@@ -103,13 +240,17 @@ final class UntrustedParsingService: NSObject, UntrustedParsingXPCProtocol {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func sanitizeHTML(_ html: String) -> String {
-        let disallowed = Set(["script", "iframe", "object", "style"])
+    private func sanitizeHTML(_ html: String, allowlist: [String]) -> String {
+        let allowedTags = allowlist.isEmpty
+            ? defaultAllowedTags
+            : Set(allowlist.map { $0.lowercased() })
+        let lineBreakTags: Set<String> = ["br", "p", "div", "li", "tr", "hr"]
+
         var output = ""
         output.reserveCapacity(min(html.count, 1024 * 64))
 
         var index = html.startIndex
-        var skipDepth = 0
+        var blockedDepth = 0
 
         while index < html.endIndex {
             let char = html[index]
@@ -118,11 +259,16 @@ final class UntrustedParsingService: NSObject, UntrustedParsingXPCProtocol {
                 let tagContent = html[html.index(after: index)..<tagEnd]
                 let tagNameInfo = parseTagName(from: tagContent)
                 if let tagName = tagNameInfo.name {
-                    if disallowed.contains(tagName) {
+                    let isAllowed = allowedTags.contains(tagName)
+                    if !isAllowed {
                         if tagNameInfo.isClosing {
-                            if skipDepth > 0 { skipDepth -= 1 }
+                            if blockedDepth > 0 { blockedDepth -= 1 }
                         } else if !tagNameInfo.isSelfClosing {
-                            skipDepth += 1
+                            blockedDepth += 1
+                        }
+                    } else if blockedDepth == 0, !tagNameInfo.isClosing {
+                        if lineBreakTags.contains(tagName) {
+                            output.append("\n")
                         }
                     }
                 }
@@ -130,7 +276,7 @@ final class UntrustedParsingService: NSObject, UntrustedParsingXPCProtocol {
                 continue
             }
 
-            if skipDepth == 0 {
+            if blockedDepth == 0 {
                 output.append(char)
             }
             index = html.index(after: index)

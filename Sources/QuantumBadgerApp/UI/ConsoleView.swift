@@ -13,6 +13,7 @@ struct ConsoleView: View {
     let auditLog: AuditLog
     let policy: PolicyEngine
     let toolApprovalManager: ToolApprovalManager
+    let toolLimitsStore: ToolLimitsStore
     @State private var prompt: String = ""
     @State private var activePlan: WorkflowPlan?
     @State private var results: [UUID: ToolResult] = [:]
@@ -40,6 +41,28 @@ struct ConsoleView: View {
                 modelSelection: modelSelection,
                 reachability: reachability
             )
+
+            GroupBox("Database Query Safety") {
+                @Bindable var limitsStore = toolLimitsStore
+                HStack {
+                    Text("Max DB query tokens")
+                    Spacer()
+                    Stepper(
+                        value: $limitsStore.dbQueryMaxTokens,
+                        in: 64...4096,
+                        step: 64
+                    ) {
+                        Text("\(limitsStore.dbQueryMaxTokens)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .labelsHidden()
+                    .accessibilityLabel("Max database query tokens")
+                }
+                Text("Higher limits allow larger queries, but can be slower on this Mac.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
 
             HStack {
                 TextField("Describe what you want to do", text: $prompt)
@@ -189,7 +212,7 @@ struct ConsoleView: View {
             confirmedAt: Date(),
             expiresAt: Date().addingTimeInterval(3600)
         )
-        _ = memoryManager.addEntry(entry)
+        _ = memoryManager.addEntry(entry, source: .userAction)
 
         let request = ToolRequest(
             id: UUID(),
@@ -255,7 +278,7 @@ struct ConsoleView: View {
             confirmedAt: Date(),
             expiresAt: Date().addingTimeInterval(3600)
         )
-        _ = memoryManager.addEntry(entry)
+        _ = memoryManager.addEntry(entry, source: .userAction)
         let request = ToolRequest(
             id: UUID(),
             toolName: "filesystem.write",

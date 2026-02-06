@@ -74,4 +74,8 @@ enum AppPaths {
     static var webFilterURL: URL {
         appSupportDirectory.appendingPathComponent("web-filters.json")
     }
+
+    static var toolLimitsURL: URL {
+        appSupportDirectory.appendingPathComponent("tool-limits.json")
+    }
 }

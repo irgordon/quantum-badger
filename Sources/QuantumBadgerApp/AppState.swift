@@ -10,6 +10,7 @@ struct SecurityCapabilities {
     let toolApprovalManager: ToolApprovalManager
     let messagingPolicy: MessagingPolicyStore
     let webFilterStore: WebFilterStore
+    let toolLimitsStore: ToolLimitsStore
 }
 
 struct ModelCapabilities {
@@ -36,6 +37,7 @@ struct RuntimeCapabilities {
 @Observable
 final class AppState {
     var navigationSelection: NavigationSelection = .console
+    var settingsSelection: SettingsTab = .general
     var banner: BannerState?
     private var reachabilityTask: Task<Void, Never>?
     private var systemEventTask: Task<Void, Never>?
@@ -50,6 +52,7 @@ final class AppState {
     let untrustedParsingPolicy: UntrustedParsingPolicyStore
     let messagingPolicy: MessagingPolicyStore
     let webFilterStore: WebFilterStore
+    let toolLimitsStore: ToolLimitsStore
 
     init(modelContext: ModelContext) {
         let auditLog = AuditLog()
@@ -64,6 +67,7 @@ final class AppState {
         let resourcePolicy = ResourcePolicyStore()
         let messagingPolicy = MessagingPolicyStore()
         let webFilterStore = WebFilterStore()
+        let toolLimitsStore = ToolLimitsStore()
         let policy = PolicyEngine(auditLog: auditLog, messagingPolicy: messagingPolicy)
         let memoryManager = MemoryManager(modelContext: modelContext, auditLog: auditLog)
         let toolApprovalManager = ToolApprovalManager(webFilterStore: webFilterStore)
@@ -78,7 +82,8 @@ final class AppState {
             messagingAdapter: SharingMessagingAdapter(),
             messagingPolicy: messagingPolicy,
             networkClient: networkClient,
-            webFilterStore: webFilterStore
+            webFilterStore: webFilterStore,
+            toolLimitsStore: toolLimitsStore
         )
         let modelLoader = ModelLoader(
             modelRegistry: modelRegistry,
@@ -93,7 +98,8 @@ final class AppState {
             networkPolicy: networkPolicy,
             toolApprovalManager: toolApprovalManager,
             messagingPolicy: messagingPolicy,
-            webFilterStore: webFilterStore
+            webFilterStore: webFilterStore,
+            toolLimitsStore: toolLimitsStore
         )
         let orchestrator = Orchestrator(
             toolRuntime: toolRuntime,
@@ -133,6 +139,7 @@ final class AppState {
         self.untrustedParsingPolicy = untrustedParsingPolicy
         self.messagingPolicy = messagingPolicy
         self.webFilterStore = webFilterStore
+        self.toolLimitsStore = toolLimitsStore
 
     }
 
@@ -291,6 +298,16 @@ final class AppState {
             let sourceLabel = source ?? "results"
             let message = "Skipped \(count) malformed \(sourceLabel.lowercased()) item\(count == 1 ? "" : "s")."
             showBanner(message: message, isError: false)
+        case .memoryWriteNeedsConfirmation(let origin):
+            showBanner(
+                message: "Memory from \(origin) needs confirmation before saving.",
+                isError: false,
+                actionTitle: "Open Memory",
+                action: { [weak self] in
+                    self?.navigationSelection = .settings
+                    self?.settingsSelection = .memory
+                }
+            )
         }
     }
 }

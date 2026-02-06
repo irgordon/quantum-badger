@@ -2,7 +2,13 @@ import Foundation
 import Security
 
 @objc protocol UntrustedParsingXPCProtocol {
-    func parse(_ data: Data, withReply reply: @escaping (String?, String?) -> Void)
+    func parse(
+        _ data: Data,
+        allowlist: [String],
+        maxParseSeconds: Double,
+        maxAnchorScans: Int,
+        withReply reply: @escaping (String?, String?) -> Void
+    )
 }
 
 final class UntrustedParsingXPCClient: UntrustedParsingService {
@@ -20,10 +26,18 @@ final class UntrustedParsingXPCClient: UntrustedParsingService {
     func parse(_ data: Data) async throws -> String {
         let retryEnabled = policyStore.retryEnabled
         let maxRetries = policyStore.maxRetries
+        let allowlist = policyStore.allowedTags
+        let maxParseSeconds = policyStore.maxParseSeconds
+        let maxAnchorScans = policyStore.maxAnchorScans
         var attempt = 0
         while true {
             do {
-                return try await parseOnce(data)
+                return try await parseOnce(
+                    data,
+                    allowlist: allowlist,
+                    maxParseSeconds: maxParseSeconds,
+                    maxAnchorScans: maxAnchorScans
+                )
             } catch {
                 attempt += 1
                 if !retryEnabled || attempt > maxRetries || !shouldRetry(error) {
@@ -35,7 +49,12 @@ final class UntrustedParsingXPCClient: UntrustedParsingService {
         }
     }
 
-    private func parseOnce(_ data: Data) async throws -> String {
+    private func parseOnce(
+        _ data: Data,
+        allowlist: [String],
+        maxParseSeconds: Double,
+        maxAnchorScans: Int
+    ) async throws -> String {
         try await withCheckedThrowingContinuation { continuation in
             let connection = NSXPCConnection(machServiceName: serviceName, options: [])
             connection.remoteObjectInterface = NSXPCInterface(with: UntrustedParsingXPCProtocol.self)
@@ -72,7 +91,12 @@ final class UntrustedParsingXPCClient: UntrustedParsingService {
                 return
             }
 
-            proxy.parse(data) { result, error in
+            proxy.parse(
+                data,
+                allowlist: allowlist,
+                maxParseSeconds: maxParseSeconds,
+                maxAnchorScans: maxAnchorScans
+            ) { result, error in
                 connection.invalidate()
                 if let error {
                     resumeOnce(.failure(UntrustedParsingError.remote(error)))

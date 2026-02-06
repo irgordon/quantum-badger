@@ -22,20 +22,34 @@ final class ResourcePolicyStore {
     private(set) var memoryPressure: MemoryPressureLevel = .normal
     private let storageURL: URL
     private var pressureSource: DispatchSourceMemoryPressure?
+    private var didMutate: Bool = false
 
     init(storageURL: URL = AppPaths.resourcePolicyURL) {
         self.storageURL = storageURL
-        self.policy = JSONStore.load(ResourcePolicy.self, from: storageURL, defaultValue: .default)
+        self.policy = .default
         startMemoryPressureMonitor()
+        loadAsync()
     }
 
     func setMinAvailableMemoryGB(_ value: Int) {
+        didMutate = true
         policy.minAvailableMemoryGB = max(2, min(64, value))
         persist()
     }
 
     private func persist() {
         try? JSONStore.save(policy, to: storageURL)
+    }
+
+    private func loadAsync() {
+        let storageURL = storageURL
+        Task.detached(priority: .utility) { [weak self] in
+            let snapshot = JSONStore.load(ResourcePolicy.self, from: storageURL, defaultValue: .default)
+            await MainActor.run {
+                guard let self, !self.didMutate else { return }
+                self.policy = snapshot
+            }
+        }
     }
 
     private func startMemoryPressureMonitor() {

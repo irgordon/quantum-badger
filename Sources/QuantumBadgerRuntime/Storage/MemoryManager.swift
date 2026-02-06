@@ -41,6 +41,11 @@ enum MemoryAddResult {
     case failed(MemoryValidationError)
 }
 
+enum MemoryWriteSource {
+    case userAction
+    case system
+}
+
 @MainActor
 @Observable
 final class MemoryManager {
@@ -62,13 +67,19 @@ final class MemoryManager {
         self.summaryStore = MemorySummaryStore()
     }
 
-    func addEntry(_ entry: MemoryEntry) -> MemoryAddResult {
+    func addEntry(_ entry: MemoryEntry, source: MemoryWriteSource = .system) -> MemoryAddResult {
         do {
             try MemorySchemaValidator.validate(entry)
         } catch let error as MemoryValidationError {
             return .failed(error)
         } catch {
             return .failed(.emptyContent)
+        }
+
+        if entry.trustLevel != .level0Ephemeral && source != .userAction {
+            let origin = entry.sourceDetail.isEmpty ? "tool output" : entry.sourceDetail
+            SystemEventBus.shared.post(.memoryWriteNeedsConfirmation(origin: origin))
+            return .needsConfirmation
         }
 
         switch entry.trustLevel {
@@ -173,7 +184,6 @@ final class MemoryManager {
         let ephemeral = ephemeralEntries
         let observations = observationStore.entries()
         let summaries = summaryStore.entries()
-        let descriptor = FetchDescriptor<MemoryRecord>(sortBy: [SortDescriptor(\.createdAt, order: .reverse)])
         return await Task.detached(priority: .utility) { [weak self] in
             guard let self else { return [] }
             var items: [MemoryEntry] = []
@@ -181,7 +191,15 @@ final class MemoryManager {
             items.append(contentsOf: observations)
             items.append(contentsOf: summaries)
             let cachedKey = try? self.keychain.loadOrCreateKey()
-            if let records = try? self.modelContext.fetch(descriptor) {
+            let batchSize = 200
+            var offset = 0
+            while true {
+                var descriptor = FetchDescriptor<MemoryRecord>(sortBy: [SortDescriptor(\.createdAt, order: .reverse)])
+                descriptor.fetchLimit = batchSize
+                descriptor.fetchOffset = offset
+                guard let records = try? self.modelContext.fetch(descriptor), !records.isEmpty else {
+                    break
+                }
                 let decrypted = records.compactMap { record in
                     guard let trustLevel = MemoryTrustLevel(rawValue: record.trustLevel),
                           let sourceType = MemorySource(rawValue: record.sourceType),
@@ -199,9 +217,69 @@ final class MemoryManager {
                     )
                 }
                 items.append(contentsOf: decrypted)
+                if records.count < batchSize {
+                    break
+                }
+                offset += batchSize
             }
             return items.sorted { $0.createdAt > $1.createdAt }
         }.value
+    }
+
+    func streamTimelineEntries(batchSize: Int = 200) -> AsyncThrowingStream<MemoryEntry, Error> {
+        let safeBatchSize = max(1, min(batchSize, 1000))
+        let ephemeral = ephemeralEntries
+        let observations = observationStore.entries()
+        let summaries = summaryStore.entries()
+        return AsyncThrowingStream { continuation in
+            Task.detached(priority: .utility) { [weak self] in
+                guard let self else {
+                    continuation.finish()
+                    return
+                }
+                for entry in ephemeral {
+                    continuation.yield(entry)
+                }
+                for entry in observations {
+                    continuation.yield(entry)
+                }
+                for entry in summaries {
+                    continuation.yield(entry)
+                }
+
+                let cachedKey = try? self.keychain.loadOrCreateKey()
+                var offset = 0
+                while true {
+                    var descriptor = FetchDescriptor<MemoryRecord>(sortBy: [SortDescriptor(\.createdAt, order: .reverse)])
+                    descriptor.fetchLimit = safeBatchSize
+                    descriptor.fetchOffset = offset
+                    guard let records = try? self.modelContext.fetch(descriptor), !records.isEmpty else {
+                        break
+                    }
+                    for record in records {
+                        guard let trustLevel = MemoryTrustLevel(rawValue: record.trustLevel),
+                              let sourceType = MemorySource(rawValue: record.sourceType),
+                              let content = self.decrypt(record.encryptedContent, key: cachedKey) else { continue }
+                        continuation.yield(MemoryEntry(
+                            id: record.id,
+                            trustLevel: trustLevel,
+                            content: content,
+                            sourceType: sourceType,
+                            sourceDetail: record.sourceDetail,
+                            createdAt: record.createdAt,
+                            isConfirmed: record.confirmedAt != nil,
+                            confirmedAt: record.confirmedAt,
+                            expiresAt: record.expiresAt
+                        ))
+                    }
+                    if records.count < safeBatchSize {
+                        break
+                    }
+                    offset += safeBatchSize
+                }
+                continuation.finish()
+            }
+        }
     }
 
     func loadTimelinePage(limit: Int, offset: Int) async -> [MemoryEntry] {
@@ -254,7 +332,7 @@ final class MemoryManager {
         var updated = entry
         updated.trustLevel = .level3Observational
         updated.expiresAt = updated.expiresAt ?? Date().addingTimeInterval(60 * 60 * 24 * 30)
-        return addEntry(updated)
+        return addEntry(updated, source: .userAction)
     }
 
     func promoteProposalToConfirmed(_ entry: MemoryEntry) -> MemoryAddResult {

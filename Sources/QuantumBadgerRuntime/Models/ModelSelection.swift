@@ -10,6 +10,7 @@ final class ModelSelectionStore {
     private(set) var didDismissOfflineDownloadCTA: Bool
 
     private let storageURL: URL
+    private var didMutate: Bool = false
 
     init(storageURL: URL = AppPaths.modelSelectionURL) {
         self.storageURL = storageURL
@@ -19,29 +20,33 @@ final class ModelSelectionStore {
             hideCloudModelsWhenOffline: true,
             didDismissOfflineDownloadCTA: false
         )
-        let snapshot = JSONStore.load(SelectionSnapshot.self, from: storageURL, defaultValue: defaults)
-        self.activeModelId = snapshot.activeModelId
-        self.offlineFallbackModelId = snapshot.offlineFallbackModelId
-        self.hideCloudModelsWhenOffline = snapshot.hideCloudModelsWhenOffline
-        self.didDismissOfflineDownloadCTA = snapshot.didDismissOfflineDownloadCTA
+        self.activeModelId = defaults.activeModelId
+        self.offlineFallbackModelId = defaults.offlineFallbackModelId
+        self.hideCloudModelsWhenOffline = defaults.hideCloudModelsWhenOffline
+        self.didDismissOfflineDownloadCTA = defaults.didDismissOfflineDownloadCTA
+        loadAsync(defaults: defaults)
     }
 
     func setActiveModel(_ id: UUID?) {
+        didMutate = true
         activeModelId = id
         persist()
     }
 
     func setOfflineFallbackModel(_ id: UUID?) {
+        didMutate = true
         offlineFallbackModelId = id
         persist()
     }
 
     func setHideCloudModelsWhenOffline(_ value: Bool) {
+        didMutate = true
         hideCloudModelsWhenOffline = value
         persist()
     }
 
     func setDidDismissOfflineDownloadCTA(_ value: Bool) {
+        didMutate = true
         didDismissOfflineDownloadCTA = value
         persist()
     }
@@ -77,6 +82,20 @@ final class ModelSelectionStore {
             didDismissOfflineDownloadCTA: didDismissOfflineDownloadCTA
         )
         try? JSONStore.save(snapshot, to: storageURL)
+    }
+
+    private func loadAsync(defaults: SelectionSnapshot) {
+        let storageURL = storageURL
+        Task.detached(priority: .utility) { [weak self] in
+            let snapshot = JSONStore.load(SelectionSnapshot.self, from: storageURL, defaultValue: defaults)
+            await MainActor.run {
+                guard let self, !self.didMutate else { return }
+                self.activeModelId = snapshot.activeModelId
+                self.offlineFallbackModelId = snapshot.offlineFallbackModelId
+                self.hideCloudModelsWhenOffline = snapshot.hideCloudModelsWhenOffline
+                self.didDismissOfflineDownloadCTA = snapshot.didDismissOfflineDownloadCTA
+            }
+        }
     }
 
     private struct SelectionSnapshot: Codable {

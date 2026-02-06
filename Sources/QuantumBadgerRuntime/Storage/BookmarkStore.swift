@@ -5,18 +5,22 @@ import Observation
 final class BookmarkStore {
     private(set) var entries: [BookmarkEntry]
     private let storageURL: URL
+    private var didMutate: Bool = false
 
     init(storageURL: URL = AppPaths.bookmarksURL) {
         self.storageURL = storageURL
-        self.entries = JSONStore.load([BookmarkEntry].self, from: storageURL, defaultValue: [])
+        self.entries = []
+        loadAsync()
     }
 
     func addEntries(_ newEntries: [BookmarkEntry]) {
+        didMutate = true
         entries.append(contentsOf: newEntries)
         persist()
     }
 
     func removeEntry(_ entry: BookmarkEntry) {
+        didMutate = true
         entries.removeAll { $0.id == entry.id }
         persist()
     }
@@ -43,6 +47,17 @@ final class BookmarkStore {
 
     private func persist() {
         try? JSONStore.save(entries, to: storageURL)
+    }
+
+    private func loadAsync() {
+        let storageURL = storageURL
+        Task.detached(priority: .utility) { [weak self] in
+            let loaded = JSONStore.load([BookmarkEntry].self, from: storageURL, defaultValue: [])
+            await MainActor.run {
+                guard let self, !self.didMutate else { return }
+                self.entries = loaded
+            }
+        }
     }
 }
 

@@ -9,31 +9,33 @@ final class WebFilterStore {
     private(set) var strictModeEnabled: Bool
     private(set) var allowedDomains: [String]
     private var regexCache: [UUID: NSRegularExpression] = [:]
+    private var compiledCache: [CompiledWebFilter] = []
+    private var compiledDirty: Bool = true
+    private var didMutate: Bool = false
 
     init(storageURL: URL = AppPaths.webFilterURL) {
         self.storageURL = storageURL
         let defaults = WebFilterSnapshot(filters: [], strictModeEnabled: false, allowedDomains: [])
-        let snapshot = JSONStore.load(WebFilterSnapshot.self, from: storageURL, defaultValue: defaults)
-        self.filters = snapshot.filters
-        self.strictModeEnabled = snapshot.strictModeEnabled
-        if snapshot.allowedDomains.isEmpty {
-            self.allowedDomains = ["duckduckgo.com", "github.com"]
-            persist()
-        } else {
-            self.allowedDomains = snapshot.allowedDomains
-        }
+        self.filters = defaults.filters
+        self.strictModeEnabled = defaults.strictModeEnabled
+        self.allowedDomains = ["duckduckgo.com", "github.com"]
+        loadAsync(defaults: defaults)
     }
 
     func addFilter(pattern: String, type: WebFilterType) {
+        didMutate = true
         let trimmed = pattern.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         filters.append(WebFilterRule(id: UUID(), pattern: trimmed, type: type))
+        compiledDirty = true
         persist()
     }
 
     func removeFilter(_ filter: WebFilterRule) {
+        didMutate = true
         filters.removeAll { $0.id == filter.id }
         regexCache.removeValue(forKey: filter.id)
+        compiledDirty = true
         persist()
     }
 
@@ -42,29 +44,41 @@ final class WebFilterStore {
     }
 
     func compiledFilters() -> [CompiledWebFilter] {
-        filters.map { rule in
+        if !compiledDirty {
+            return compiledCache
+        }
+        var compiled: [CompiledWebFilter] = []
+        compiled.reserveCapacity(filters.count)
+        for rule in filters {
             switch rule.type {
             case .word:
-                return CompiledWebFilter(rule: rule, regex: nil)
+                compiled.append(CompiledWebFilter(rule: rule, regex: nil))
             case .regex:
                 if let cached = regexCache[rule.id] {
-                    return CompiledWebFilter(rule: rule, regex: cached)
+                    compiled.append(CompiledWebFilter(rule: rule, regex: cached))
+                    continue
                 }
-                if let compiled = try? NSRegularExpression(pattern: rule.pattern) {
-                    regexCache[rule.id] = compiled
-                    return CompiledWebFilter(rule: rule, regex: compiled)
+                if let compiledRegex = try? NSRegularExpression(pattern: rule.pattern) {
+                    regexCache[rule.id] = compiledRegex
+                    compiled.append(CompiledWebFilter(rule: rule, regex: compiledRegex))
+                } else {
+                    compiled.append(CompiledWebFilter(rule: rule, regex: nil))
                 }
-                return CompiledWebFilter(rule: rule, regex: nil)
             }
         }
+        compiledCache = compiled
+        compiledDirty = false
+        return compiled
     }
 
     func setStrictMode(_ enabled: Bool) {
+        didMutate = true
         strictModeEnabled = enabled
         persist()
     }
 
     func addAllowedDomain(_ domain: String) {
+        didMutate = true
         let trimmed = domain.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !trimmed.isEmpty else { return }
         if !allowedDomains.contains(trimmed) {
@@ -74,6 +88,7 @@ final class WebFilterStore {
     }
 
     func removeAllowedDomain(_ domain: String) {
+        didMutate = true
         let trimmed = domain.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         allowedDomains.removeAll { $0 == trimmed }
         persist()
@@ -102,6 +117,25 @@ final class WebFilterStore {
             allowedDomains: allowedDomains
         )
         try? JSONStore.save(snapshot, to: storageURL)
+    }
+
+    private func loadAsync(defaults: WebFilterSnapshot) {
+        let storageURL = storageURL
+        Task.detached(priority: .utility) { [weak self] in
+            let snapshot = JSONStore.load(WebFilterSnapshot.self, from: storageURL, defaultValue: defaults)
+            await MainActor.run {
+                guard let self, !self.didMutate else { return }
+                self.filters = snapshot.filters
+                self.strictModeEnabled = snapshot.strictModeEnabled
+                if snapshot.allowedDomains.isEmpty {
+                    self.allowedDomains = ["duckduckgo.com", "github.com"]
+                    self.persist()
+                } else {
+                    self.allowedDomains = snapshot.allowedDomains
+                }
+                self.compiledDirty = true
+            }
+        }
     }
 }
 

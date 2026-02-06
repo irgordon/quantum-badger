@@ -15,6 +15,7 @@ struct SettingsView: View {
     let messagingPolicy: MessagingPolicyStore
     let webFilterStore: WebFilterStore
     let openCircuitsStore: OpenCircuitsStore
+    @Binding var selectedTab: SettingsTab
     private let keychain = KeychainStore()
 
     @State private var allowFileWrites: Bool = false
@@ -39,9 +40,11 @@ struct SettingsView: View {
     @State private var allowedDomainDraft: String = ""
     @State private var webFilterTestInput: String = ""
     @State private var webFilterTestOutput: String = ""
+    @State private var allowedHTMLTagsText: String = ""
+    @State private var allowedTagsDebounceTask: Task<Void, Never>?
 
     var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     Text("Settings")
@@ -439,20 +442,6 @@ struct SettingsView: View {
                     .buttonStyle(.bordered)
                 }
 
-                GroupBox("Memory") {
-                    Toggle("Remember my habits", isOn: Binding(
-                        get: { true },
-                        set: { _ in }
-                    ))
-                    .disabled(true)
-                    Text("Memory stays on this Mac and is always editable.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    MemoryEntryForm(memoryManager: memoryManager)
-                    MemoryTimelineView(memoryManager: memoryManager)
-                }
-
                 GroupBox("Manage Cloud Keys") {
                     let cloudModels = modelRegistry.models.filter { $0.isCloud }
                     if cloudModels.isEmpty {
@@ -541,6 +530,36 @@ struct SettingsView: View {
         .tabItem {
             Label("General", systemImage: "gearshape")
         }
+        .tag(SettingsTab.general)
+
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Memory")
+                    .font(.title)
+                    .fontWeight(.semibold)
+
+                GroupBox("Memory") {
+                    Toggle("Remember my habits", isOn: Binding(
+                        get: { true },
+                        set: { _ in }
+                    ))
+                    .disabled(true)
+                    Text("Memory stays on this Mac and is always editable.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    MemoryEntryForm(memoryManager: memoryManager)
+                    MemoryTimelineView(memoryManager: memoryManager)
+                }
+
+                Spacer()
+            }
+            .padding()
+        }
+        .tabItem {
+            Label("Memory", systemImage: "brain")
+        }
+        .tag(SettingsTab.memory)
 
         NavigationStack {
             ScrollView {
@@ -628,6 +647,79 @@ struct SettingsView: View {
                         Text("If the parser stops unexpectedly, Quantum Badger can try again once.")
                             .font(.caption)
                             .foregroundColor(.secondary)
+                        Divider()
+                        HStack {
+                            Text("Max parse time")
+                            Spacer()
+                            Stepper(
+                                value: Binding(
+                                    get: { untrustedParsingPolicy.maxParseSeconds },
+                                    set: { untrustedParsingPolicy.setMaxParseSeconds($0) }
+                                ),
+                                in: 0.1...2.0,
+                                step: 0.1
+                            ) {
+                                Text("\(String(format: "%.1f", untrustedParsingPolicy.maxParseSeconds))s")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .labelsHidden()
+                        }
+                        HStack {
+                            Text("Max anchor scans")
+                            Spacer()
+                            Stepper(
+                                value: Binding(
+                                    get: { untrustedParsingPolicy.maxAnchorScans },
+                                    set: { untrustedParsingPolicy.setMaxAnchorScans($0) }
+                                ),
+                                in: 50...5000,
+                                step: 50
+                            ) {
+                                Text("\(untrustedParsingPolicy.maxAnchorScans)")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .labelsHidden()
+                        }
+                        Text("Lower limits are safer but may miss results on complex pages.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    GroupBox("HTML Allowlist") {
+                        Picker("Preset", selection: Binding(
+                            get: { untrustedParsingPolicy.preset },
+                            set: { untrustedParsingPolicy.setPreset($0) }
+                        )) {
+                            ForEach(UntrustedParsingPreset.allCases) { preset in
+                                Text(preset.displayName).tag(preset)
+                            }
+                        }
+                        .pickerStyle(.menu)
+
+                        Text(untrustedParsingPolicy.preset.descriptionText)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        if untrustedParsingPolicy.preset == .permissive {
+                            Text("Minimal filtering can expose hidden or misleading text. Only use this for trusted sources.")
+                                .font(.caption)
+                                .foregroundColor(.orange)
+                        }
+
+                        TextField("Allowed tags (comma-separated)", text: $allowedHTMLTagsText)
+                            .textFieldStyle(.roundedBorder)
+                            .disabled(untrustedParsingPolicy.preset != .custom)
+                        HStack {
+                            Button("Reset to Default") {
+                                untrustedParsingPolicy.resetAllowedTagsToDefault()
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                        Text("Only these tags are kept when sanitizing web content.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
 
                     Spacer()
@@ -658,6 +750,7 @@ struct SettingsView: View {
         .tabItem {
             Label("Advanced", systemImage: "wrench.and.screwdriver")
         }
+        .tag(SettingsTab.advanced)
         .onAppear {
             Task {
                 allowFileWrites = await securityCapabilities.policy.hasGrant(.filesystemWrite)
@@ -665,9 +758,16 @@ struct SettingsView: View {
             networkSessionMinutes = securityCapabilities.networkPolicy.defaultSessionMinutes
             allowedWebDomainsText = networkHostsString(securityCapabilities.networkPolicy.endpointsSnapshot())
             endpointDrafts = securityCapabilities.networkPolicy.endpointsSnapshot().map { EndpointDraft(from: $0) }
+            allowedHTMLTagsText = untrustedParsingPolicy.allowedTags.joined(separator: ", ")
         }
         .onChange(of: allowedWebDomainsText) { _, newValue in
             scheduleHostsSync(newValue)
+        }
+        .onChange(of: allowedHTMLTagsText) { _, newValue in
+            scheduleAllowedTagsSync(newValue)
+        }
+        .onChange(of: untrustedParsingPolicy.preset) { _, _ in
+            allowedHTMLTagsText = untrustedParsingPolicy.allowedTags.joined(separator: ", ")
         }
     }
 
@@ -697,6 +797,25 @@ struct SettingsView: View {
         let endpoints = parseHosts(from: value)
         securityCapabilities.networkPolicy.setEndpoints(endpoints)
         endpointDrafts = endpoints.map { EndpointDraft(from: $0) }
+    }
+
+    private func scheduleAllowedTagsSync(_ value: String) {
+        guard untrustedParsingPolicy.preset == .custom else { return }
+        allowedTagsDebounceTask?.cancel()
+        allowedTagsDebounceTask = Task {
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            await MainActor.run {
+                applyAllowedTagsSync(value)
+            }
+        }
+    }
+
+    private func applyAllowedTagsSync(_ value: String) {
+        let tags = value
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty }
+        untrustedParsingPolicy.setAllowedTags(tags)
     }
 
     private func removeCloudModel(_ model: LocalModel) {
@@ -763,15 +882,25 @@ struct SettingsView: View {
     }
 
     private func memoryTimelineJSON() async -> String {
-        let entries = await memoryManager.loadTimelineEntries()
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
-        if let data = try? encoder.encode(entries),
-           let string = String(data: data, encoding: .utf8) {
-            return string
+        var output = "["
+        var isFirst = true
+        do {
+            for try await entry in memoryManager.streamTimelineEntries() {
+                if let data = try? encoder.encode(entry),
+                   let json = String(data: data, encoding: .utf8) {
+                    if !isFirst { output += "," }
+                    output += json
+                    isFirst = false
+                }
+            }
+        } catch {
+            return "[]"
         }
-        return "[]"
+        output += "]"
+        return output
     }
 
     private func policySnapshotJSON() async -> String {

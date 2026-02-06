@@ -115,7 +115,7 @@ struct MemoryEntryForm: View {
             confirmedAt: isConfirmed ? Date() : nil,
             expiresAt: expiresAt
         )
-        switch memoryManager.addEntry(entry) {
+        switch memoryManager.addEntry(entry, source: .userAction) {
         case .success:
             content = ""
             errorMessage = nil

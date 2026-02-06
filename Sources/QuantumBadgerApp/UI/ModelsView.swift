@@ -23,6 +23,9 @@ struct ModelsView: View {
     @State private var cloudApiKey = ""
     @State private var cloudErrorMessage: String?
     @State private var modelFixTarget: LocalModel?
+    @State private var reachabilityCache: [UUID: Bool] = [:]
+    @State private var checkingModels: Set<UUID> = []
+    @State private var reachabilityTask: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -118,7 +121,8 @@ struct ModelsView: View {
                         let isLocked = modelRegistry.isModelLocked(model.id)
                         ModelRow(
                             model: model,
-                            isMissing: !modelRegistry.isModelPathReachable(model),
+                            isMissing: isMissing(model),
+                            isChecking: checkingModels.contains(model.id),
                             onFix: { prepareFix(for: model) },
                             isLocked: isLocked,
                             onUnload: { modelLoader.unloadModel(model.id) }
@@ -143,6 +147,14 @@ struct ModelsView: View {
                !modelRegistry.localModels().contains(where: { $0.id == activeId }) {
                 modelSelection.setActiveModel(nil)
             }
+            refreshReachability(for: modelsForDisplay())
+        }
+        .onChange(of: modelRegistry.models) { _, newValue in
+            refreshReachability(for: newValue)
+        }
+        .onDisappear {
+            reachabilityTask?.cancel()
+            reachabilityTask = nil
         }
         .fileImporter(
             isPresented: $isModelFileImporterPresented,
@@ -207,6 +219,28 @@ struct ModelsView: View {
             return modelRegistry.localModels()
         }
         return modelRegistry.models
+    }
+
+    private func refreshReachability(for models: [LocalModel]) {
+        reachabilityTask?.cancel()
+        let ids = Set(models.map { $0.id })
+        checkingModels = ids
+        reachabilityTask = Task.detached(priority: .utility) { [modelRegistry] in
+            var snapshot: [UUID: Bool] = [:]
+            snapshot.reserveCapacity(models.count)
+            for model in models {
+                snapshot[model.id] = modelRegistry.isModelPathReachable(model)
+            }
+            await MainActor.run {
+                reachabilityCache = snapshot
+                checkingModels.subtract(ids)
+            }
+        }
+    }
+
+    private func isMissing(_ model: LocalModel) -> Bool {
+        guard !checkingModels.contains(model.id) else { return false }
+        return !(reachabilityCache[model.id] ?? true)
     }
 
     private func prepareFix(for model: LocalModel) {
@@ -344,6 +378,7 @@ struct ModelForm: View {
 struct ModelRow: View {
     let model: LocalModel
     let isMissing: Bool
+    let isChecking: Bool
     let onFix: () -> Void
     let isLocked: Bool
     let onUnload: () -> Void
@@ -355,6 +390,15 @@ struct ModelRow: View {
             Text(model.path)
                 .font(.caption)
                 .foregroundColor(.secondary)
+            if isChecking {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Checking file…")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
             if isMissing {
                 HStack(spacing: 8) {
                     Label("File not found. Select the model again.", systemImage: "exclamationmark.triangle")
