@@ -62,6 +62,9 @@ final class MemoryManager {
     private let observationStore: MemoryObservationStore
     private let summaryStore: MemorySummaryStore
     private let writePolicy: MemoryWritePolicy
+    private let snapshotStore: MemorySnapshotStore
+    private let rollbackManager: RollbackManager
+    private var modifiedPersistentSinceSnapshot: Int = 0
 
     init(
         modelContext: ModelContext,
@@ -75,6 +78,69 @@ final class MemoryManager {
         self.observationStore = MemoryObservationStore()
         self.summaryStore = MemorySummaryStore()
         self.writePolicy = writePolicy
+        let snapshotStore = MemorySnapshotStore()
+        self.snapshotStore = snapshotStore
+        self.rollbackManager = RollbackManager(
+            snapshotStore: snapshotStore,
+            modelContext: modelContext,
+            auditLog: auditLog,
+            observationURL: AppPaths.memoryObservationURL,
+            summaryURL: AppPaths.memorySummaryURL
+        )
+    }
+
+    @MainActor
+    func captureSnapshot(origin: String) {
+        let descriptor = FetchDescriptor<MemoryRecord>()
+        let persistentCount = (try? modelContext.fetchCount(descriptor)) ?? 0
+        let snapshotId = UUID()
+        let modifiedCount = modifiedPersistentSinceSnapshot
+        modifiedPersistentSinceSnapshot = 0
+        let ephemeralCount = ephemeralEntries.count
+        let observationCount = observationStore.entries().count
+        let summaryCount = summaryStore.entries().count
+        let pendingProposalsCount = pendingProposals.count
+        let pendingWritesCount = pendingWrites.count
+        let storeURL = modelContext.container.configurations.first?.url
+        let observationURL = observationStore.storeURL
+        let summaryURL = summaryStore.storeURL
+
+        Task.detached(priority: .utility) { [auditLog, snapshotStore] in
+            var storeHash: String?
+            if let storeURL, let digest = Hashing.sha256File(storeURL) {
+                storeHash = Hashing.hexString(from: digest)
+            }
+
+            var artifact: MemorySnapshotArtifact?
+            if modifiedCount > 0 || storeHash == nil {
+                artifact = snapshotStore.storeSnapshot(
+                    storeURL: storeURL,
+                    observationURL: observationURL,
+                    summaryURL: summaryURL,
+                    snapshotId: snapshotId
+                )
+            }
+
+            let snapshot = MemorySnapshot(
+                id: snapshotId,
+                timestamp: Date(),
+                origin: origin,
+                persistentCount: persistentCount,
+                ephemeralCount: ephemeralCount,
+                observationCount: observationCount,
+                summaryCount: summaryCount,
+                pendingProposalsCount: pendingProposalsCount,
+                pendingWritesCount: pendingWritesCount,
+                storeHash: storeHash,
+                modifiedPersistentCount: modifiedCount,
+                storeFileRef: artifact?.refId,
+                storeFilename: artifact?.storeFilename
+            )
+
+            await MainActor.run {
+                auditLog.record(event: .memorySnapshot(snapshot))
+            }
+        }
     }
 
     func addEntry(_ entry: MemoryEntry, source: MemoryWriteSource = .system) -> MemoryAddResult {
@@ -130,7 +196,12 @@ final class MemoryManager {
     func deleteRecord(id: UUID) {
         if let record = try? modelContext.fetch(FetchDescriptor<MemoryRecord>()).first(where: { $0.id == id }) {
             modelContext.delete(record)
-            try? modelContext.save()
+            do {
+                try modelContext.save()
+                modifiedPersistentSinceSnapshot += 1
+            } catch {
+                return
+            }
         }
     }
 
@@ -155,10 +226,15 @@ final class MemoryManager {
         summaryStore.purgeExpired()
         let descriptor = FetchDescriptor<MemoryRecord>()
         if let records = try? modelContext.fetch(descriptor) {
+            var removed = 0
             for record in records where record.expiresAt != nil && record.expiresAt! <= now {
                 modelContext.delete(record)
+                removed += 1
             }
             try? modelContext.save()
+            if removed > 0 {
+                modifiedPersistentSinceSnapshot += removed
+            }
         }
     }
 
@@ -453,6 +529,7 @@ final class MemoryManager {
         modelContext.insert(record)
         do {
             try modelContext.save()
+            modifiedPersistentSinceSnapshot += 1
             auditLog.record(event: .memoryStored(entry))
             return .success
         } catch {
@@ -527,6 +604,38 @@ final class MemoryManager {
         }
         keychain.deleteKey()
         recoveryIssue = nil
+        modifiedPersistentSinceSnapshot = 0
+    }
+
+    @MainActor
+    func rollback(to snapshotId: UUID) -> RollbackResult {
+        let snapshots = auditLog.entries.compactMap { $0.event.memorySnapshot }
+        let result = rollbackManager.rollback(to: snapshotId, using: snapshots)
+        if result.succeeded {
+            clearEphemeralCache()
+            observationStore.invalidateCaches()
+            summaryStore.invalidateCaches()
+        }
+        return result
+    }
+
+    @MainActor
+    func flush() async {
+        do {
+            try modelContext.save()
+        } catch {
+            AppLogger.storage.error("Failed to flush memory store: \(error.localizedDescription, privacy: .private)")
+        }
+        observationStore.flush()
+        summaryStore.flush()
+    }
+
+    @MainActor
+    func pruneSnapshotsKeepingMostRecent(_ count: Int) -> Int {
+        let snapshots = auditLog.entries.compactMap { $0.event.memorySnapshot }
+            .sorted { $0.timestamp > $1.timestamp }
+        let keepIds = Set(snapshots.compactMap(\.storeFileRef).prefix(max(0, count)))
+        return snapshotStore.deleteSnapshots(except: keepIds)
     }
 
     func clearEphemeralCache() {
@@ -570,6 +679,85 @@ final class MemoryManager {
         guard ["local.search"].contains(result.toolName) else { return false }
         guard result.output["memoryProposals"] != nil || result.output["memoryProposal"] != nil else { return false }
         return true
+    }
+}
+
+struct MemorySnapshot: Codable, Identifiable {
+    let id: UUID
+    let timestamp: Date
+    let origin: String
+    let persistentCount: Int
+    let ephemeralCount: Int
+    let observationCount: Int
+    let summaryCount: Int
+    let pendingProposalsCount: Int
+    let pendingWritesCount: Int
+    let storeHash: String?
+    let modifiedPersistentCount: Int
+    let storeFileRef: String?
+    let storeFilename: String?
+
+    init(
+        id: UUID = UUID(),
+        timestamp: Date,
+        origin: String,
+        persistentCount: Int,
+        ephemeralCount: Int,
+        observationCount: Int,
+        summaryCount: Int,
+        pendingProposalsCount: Int,
+        pendingWritesCount: Int,
+        storeHash: String?,
+        modifiedPersistentCount: Int,
+        storeFileRef: String?,
+        storeFilename: String?
+    ) {
+        self.id = id
+        self.timestamp = timestamp
+        self.origin = origin
+        self.persistentCount = persistentCount
+        self.ephemeralCount = ephemeralCount
+        self.observationCount = observationCount
+        self.summaryCount = summaryCount
+        self.pendingProposalsCount = pendingProposalsCount
+        self.pendingWritesCount = pendingWritesCount
+        self.storeHash = storeHash
+        self.modifiedPersistentCount = modifiedPersistentCount
+        self.storeFileRef = storeFileRef
+        self.storeFilename = storeFilename
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        let timestamp = try container.decode(Date.self, forKey: .timestamp)
+        let origin = try container.decode(String.self, forKey: .origin)
+        let persistentCount = try container.decodeIfPresent(Int.self, forKey: .persistentCount) ?? 0
+        let ephemeralCount = try container.decodeIfPresent(Int.self, forKey: .ephemeralCount) ?? 0
+        let observationCount = try container.decodeIfPresent(Int.self, forKey: .observationCount) ?? 0
+        let summaryCount = try container.decodeIfPresent(Int.self, forKey: .summaryCount) ?? 0
+        let pendingProposalsCount = try container.decodeIfPresent(Int.self, forKey: .pendingProposalsCount) ?? 0
+        let pendingWritesCount = try container.decodeIfPresent(Int.self, forKey: .pendingWritesCount) ?? 0
+        let storeHash = try container.decodeIfPresent(String.self, forKey: .storeHash)
+        let modifiedPersistentCount = try container.decodeIfPresent(Int.self, forKey: .modifiedPersistentCount) ?? 0
+        let storeFileRef = try container.decodeIfPresent(String.self, forKey: .storeFileRef)
+        let storeFilename = try container.decodeIfPresent(String.self, forKey: .storeFilename)
+
+        self.init(
+            id: id,
+            timestamp: timestamp,
+            origin: origin,
+            persistentCount: persistentCount,
+            ephemeralCount: ephemeralCount,
+            observationCount: observationCount,
+            summaryCount: summaryCount,
+            pendingProposalsCount: pendingProposalsCount,
+            pendingWritesCount: pendingWritesCount,
+            storeHash: storeHash,
+            modifiedPersistentCount: modifiedPersistentCount,
+            storeFileRef: storeFileRef,
+            storeFilename: storeFilename
+        )
     }
 }
 

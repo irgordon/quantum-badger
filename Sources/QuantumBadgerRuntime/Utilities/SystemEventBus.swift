@@ -8,6 +8,7 @@ enum SystemEvent {
     case networkCircuitClosed(host: String)
     case decodingSkipped(count: Int, source: String?)
     case memoryWriteNeedsConfirmation(origin: String)
+    case toolSessionGrantChanged(toolName: String)
 }
 
 final class SystemEventBus {

@@ -1,8 +1,8 @@
 import Foundation
-import SQLite3
 
 struct SecureDatabaseQueryTool: SecureInjectionTool {
     let toolName: String = "db.query"
+    private let dbClient = DatabaseQueryXPCClient()
 
     func run(
         request: ToolRequest,
@@ -30,154 +30,70 @@ struct SecureDatabaseQueryTool: SecureInjectionTool {
             )
         }
 
-        guard let dbPath = resolveConnectionPath(from: request, vaultStore: vaultStore, redactor: secretRedactor) else {
+        guard let bookmarkData = resolveBookmarkData(from: request, vaultStore: vaultStore) else {
             return ToolResult(
                 id: request.id,
                 toolName: request.toolName,
-                output: ["error": "Missing database connection reference."],
+                output: ["error": "Missing secure database reference."],
                 succeeded: false,
                 finishedAt: Date()
             )
         }
 
-        guard fileSizeOK(dbPath, maxBytes: limits.maxFileBytes) else {
-            return ToolResult(
-                id: request.id,
-                toolName: request.toolName,
-                output: ["error": "Database file is too large."],
-                succeeded: false,
-                finishedAt: Date()
+        do {
+            let response = try await dbClient.query(
+                requestId: request.id,
+                bookmarkData: bookmarkData,
+                sql: query,
+                parametersJSON: request.input["parameters"],
+                maxOutputBytes: limits.maxOutputBytes,
+                maxFileBytes: limits.maxFileBytes,
+                maxQueryTokens: limits.maxQueryTokens
             )
-        }
-
-        var db: OpaquePointer?
-        if sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) != SQLITE_OK {
-            return ToolResult(
-                id: request.id,
-                toolName: request.toolName,
-                output: ["error": "Unable to open database."],
-                succeeded: false,
-                finishedAt: Date()
-            )
-        }
-        defer { sqlite3_close(db) }
-
-        var statement: OpaquePointer?
-        if sqlite3_prepare_v2(db, query, -1, &statement, nil) != SQLITE_OK {
-            return ToolResult(
-                id: request.id,
-                toolName: request.toolName,
-                output: ["error": "Query failed to prepare."],
-                succeeded: false,
-                finishedAt: Date()
-            )
-        }
-        defer { sqlite3_finalize(statement) }
-
-        if let parameters = decodeParameters(from: request.input["parameters"]) {
-            bindParameters(parameters, to: statement)
-        }
-
-        let columnCount = sqlite3_column_count(statement)
-        var columns: [String] = []
-        columns.reserveCapacity(Int(columnCount))
-        for index in 0..<columnCount {
-            if let name = sqlite3_column_name(statement, index) {
-                columns.append(String(cString: name))
-            } else {
-                columns.append("column\(index)")
+            if response.isStale {
+                return ToolResult(
+                    id: request.id,
+                    toolName: request.toolName,
+                    output: [
+                        "error": "Saved database location needs to be chosen again.",
+                        "staleBookmark": "true"
+                    ],
+                    succeeded: false,
+                    finishedAt: Date()
+                )
             }
-        }
-
-        var rows: [[String]] = []
-        var estimatedBytes = 0
-        let maxRows = 200
-        while sqlite3_step(statement) == SQLITE_ROW {
-            if Task.isCancelled { break }
-            var row: [String] = []
-            row.reserveCapacity(Int(columnCount))
-            for index in 0..<columnCount {
-                if let value = sqlite3_column_text(statement, index) {
-                    let stringValue = String(cString: value)
-                    row.append(stringValue)
-                    estimatedBytes += stringValue.utf8.count
-                } else {
-                    row.append("")
-                }
-            }
-            rows.append(row)
-            if rows.count >= maxRows { break }
-            if limits.maxOutputBytes > 0 && estimatedBytes > limits.maxOutputBytes {
-                break
-            }
-        }
-
-        let output: [String: String] = [
-            "columns": encode(columns),
-            "rows": encode(rows),
-            "truncated": (limits.maxOutputBytes > 0 && estimatedBytes > limits.maxOutputBytes) ? "true" : "false"
-        ]
-        return ToolResult(
-            id: request.id,
-            toolName: request.toolName,
-            output: output,
-            succeeded: true,
-            finishedAt: Date()
-        )
-    }
-
-    private func resolveConnectionPath(
-        from request: ToolRequest,
-        vaultStore: VaultStore,
-        redactor: SecretRedactor
-    ) -> String? {
-        if let refLabel = request.input["connectionRef"],
-           let references = request.vaultReferences,
-           let reference = references.first(where: { $0.label == refLabel }),
-           let secretPath = vaultStore.secret(for: reference) {
-            redactor.register(secretPath)
-            return normalizeSQLitePath(secretPath)
-        }
-        return nil
-    }
-
-    private func normalizeSQLitePath(_ value: String) -> String? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.hasPrefix("sqlite:///") {
-            return String(trimmed.dropFirst("sqlite:///".count - 1))
-        }
-        if trimmed.hasPrefix("file://") {
-            return URL(string: trimmed)?.path
-        }
-        return trimmed
-    }
-
-    private func fileSizeOK(_ path: String, maxBytes: Int) -> Bool {
-        guard maxBytes > 0 else { return true }
-        let attributes = try? FileManager.default.attributesOfItem(atPath: path)
-        if let size = attributes?[.size] as? NSNumber {
-            return size.intValue <= maxBytes
-        }
-        return true
-    }
-
-    private func encode<T: Encodable>(_ value: T) -> String {
-        let data = (try? JSONEncoder().encode(value)) ?? Data()
-        return String(data: data, encoding: .utf8) ?? "[]"
-    }
-
-    private func decodeParameters(from raw: String?) -> [String]? {
-        guard let raw, let data = raw.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode([String].self, from: data)
-    }
-
-    private func bindParameters(_ parameters: [String], to statement: OpaquePointer?) {
-        guard let statement else { return }
-        for (index, value) in parameters.enumerated() {
-            sqlite3_bind_text(statement, Int32(index + 1), value, -1, SQLITE_TRANSIENT)
+            let output: [String: String] = [
+                "columns": response.columnsJSON,
+                "rows": response.rowsJSON,
+                "truncated": response.truncated ? "true" : "false"
+            ]
+            return ToolResult(
+                id: request.id,
+                toolName: request.toolName,
+                output: output,
+                succeeded: true,
+                finishedAt: Date()
+            )
+        } catch {
+            let message = error is CancellationError ? "Database query cancelled." : "Unable to query database."
+            return ToolResult(
+                id: request.id,
+                toolName: request.toolName,
+                output: ["error": message],
+                succeeded: false,
+                finishedAt: Date()
+            )
         }
     }
 
+    private func resolveBookmarkData(from request: ToolRequest, vaultStore: VaultStore) -> Data? {
+        guard let refLabel = request.input["connectionRef"],
+              let references = request.vaultReferences,
+              let reference = references.first(where: { $0.label == refLabel }) else {
+            return nil
+        }
+        return vaultStore.bookmarkData(for: reference)
+    }
 }
 
 private enum SQLSelectValidator {

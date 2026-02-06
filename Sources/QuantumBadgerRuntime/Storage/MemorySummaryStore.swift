@@ -13,6 +13,8 @@ final class MemorySummaryStore {
         self.keychain = keychain
     }
 
+    var storeURL: URL { storageURL }
+
     func add(_ entry: MemoryEntry) {
         guard let encrypted = encrypt(entry) else { return }
         loadCachesIfNeeded()
@@ -63,6 +65,11 @@ final class MemorySummaryStore {
         persistCachedEncrypted()
     }
 
+    func invalidateCaches() {
+        cachedEncrypted = nil
+        cachedDecrypted = nil
+    }
+
     private func loadCachesIfNeeded() {
         if cachedEncrypted != nil && cachedDecrypted != nil { return }
         guard let data = try? Data(contentsOf: storageURL),
@@ -79,6 +86,10 @@ final class MemorySummaryStore {
         if let data = try? JSONEncoder().encode(cachedEncrypted ?? []) {
             try? JSONStore.writeAtomically(data: data, to: storageURL)
         }
+    }
+
+    func flush() {
+        persistCachedEncrypted()
     }
 
     private func encrypt(_ entry: MemoryEntry) -> EncryptedMemoryEntry? {

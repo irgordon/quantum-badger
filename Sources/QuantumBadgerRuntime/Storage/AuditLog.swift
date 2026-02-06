@@ -7,13 +7,16 @@ final class AuditLog {
     private(set) var entries: [AuditEntry] = []
     private let storageURL: URL
     private let keychain: KeychainStore
+    private let payloadStore: AuditPayloadStore
     private let persistQueue = DispatchQueue(label: "com.quantumbadger.audit.persist", qos: .utility)
     private let maxEntries = 2000
     private var rotationInProgress: Bool = false
+    private var lastPayloadCleanup: Date?
 
     init(storageURL: URL = AppPaths.auditLogURL, keychain: KeychainStore = KeychainStore(service: "com.quantumbadger.audit")) {
         self.storageURL = storageURL
         self.keychain = keychain
+        self.payloadStore = AuditPayloadStore(keychain: keychain)
         load()
     }
 
@@ -34,7 +37,8 @@ final class AuditLog {
         record(event: .exportRequested)
         do {
             if option.isEncrypted {
-                let data = try JSONEncoder().encode(entries)
+                let exportEntries = entries.map { resolvePayloadsForExport($0) }
+                let data = try JSONEncoder().encode(exportEntries)
                 guard let password = option.password else { return false }
                 let envelope = try ExportEnvelope.seal(data: data, password: password)
                 let payload = try JSONEncoder().encode(envelope)
@@ -65,7 +69,8 @@ final class AuditLog {
             try handle.write(contentsOf: Data("[".utf8))
             var first = true
             for entry in entries {
-                let data = try encoder.encode(entry)
+                let resolved = resolvePayloadsForExport(entry)
+                let data = try encoder.encode(resolved)
                 if !first {
                     try handle.write(contentsOf: Data(",".utf8))
                 }
@@ -92,6 +97,7 @@ final class AuditLog {
             let decrypted = try AES.GCM.open(box, using: key)
             entries = try JSONDecoder().decode([AuditEntry].self, from: decrypted)
             rotateIfNeeded()
+            schedulePayloadCleanup()
         } catch {
             AppLogger.storage.error("Failed to load audit log: \(error.localizedDescription, privacy: .private)")
             entries = []
@@ -115,6 +121,26 @@ final class AuditLog {
         }
     }
 
+    func flush() async {
+        let snapshot = entries
+        let storageURL = self.storageURL
+        await withCheckedContinuation { continuation in
+            persistQueue.async { [keychain] in
+                do {
+                    let key = try keychain.loadOrCreateKey()
+                    let data = try JSONEncoder().encode(snapshot)
+                    let sealed = try AES.GCM.seal(data, using: key)
+                    if let combined = sealed.combined {
+                        try JSONStore.writeAtomically(data: combined, to: storageURL)
+                    }
+                } catch {
+                    AppLogger.storage.error("Failed to flush audit log: \(error.localizedDescription, privacy: .private)")
+                }
+                continuation.resume()
+            }
+        }
+    }
+
     private func rotateIfNeeded() {
         guard entries.count > maxEntries else { return }
         guard !rotationInProgress else { return }
@@ -133,6 +159,7 @@ final class AuditLog {
                     return
                 }
                 self.entries = recomputed
+                self.schedulePayloadCleanup()
             }
         }
     }
@@ -158,6 +185,111 @@ final class AuditLog {
         payload.append(eventData)
         payload.append(previousData)
         return Hashing.sha256(payload)
+    }
+
+    func integrityHash() -> String {
+        entries.last?.hash ?? ""
+    }
+
+    func verifyIntegrity() -> Bool {
+        var previousHash = ""
+        for entry in entries {
+            let recomputed = hashEvent(entry.event, previousHash: previousHash)
+            if recomputed != entry.hash {
+                return false
+            }
+            previousHash = recomputed
+        }
+        return true
+    }
+
+    func recordNetworkPayloadRedaction(decision: NetworkDecision, before: Data, after: Data) {
+        let beforeId = payloadStore.storePayload(before)
+        let afterId = payloadStore.storePayload(after)
+        let previewLimit = 500
+        let beforeString = String(data: before, encoding: .utf8) ?? "<non-utf8 payload>"
+        let afterString = String(data: after, encoding: .utf8) ?? "<non-utf8 payload>"
+        let truncated = beforeString.count > previewLimit || afterString.count > previewLimit
+        let previewBefore = beforeString.count > previewLimit ? String(beforeString.prefix(previewLimit)) + "…" : beforeString
+        let previewAfter = afterString.count > previewLimit ? String(afterString.prefix(previewLimit)) + "…" : afterString
+        let event = AuditEvent.networkPayloadRedacted(
+            decision: decision,
+            beforePreview: previewBefore,
+            afterPreview: previewAfter,
+            beforeRef: beforeId,
+            afterRef: afterId,
+            truncated: truncated
+        )
+        let previousHash = entries.last?.hash ?? ""
+        let hash = hashEvent(event, previousHash: previousHash)
+        let entry = AuditEntry(id: UUID(), event: event, previousHash: previousHash, hash: hash)
+        entries.append(entry)
+        rotateIfNeeded()
+        persist()
+        schedulePayloadCleanup()
+    }
+
+    func payloadString(for ref: String) -> String? {
+        guard let data = payloadStore.loadPayload(id: ref) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    func isolatePayload(id: String) -> Bool {
+        payloadStore.isolatePayload(id: id)
+    }
+
+    private func resolvePayloadsForExport(_ entry: AuditEntry) -> AuditEntry {
+        guard entry.event.kind == .networkPayloadRedacted else { return entry }
+        var event = entry.event
+        if let ref = event.payloadBeforeRef, let loaded = payloadStore.loadPayload(id: ref),
+           let text = String(data: loaded, encoding: .utf8) {
+            event.payloadBefore = text
+        }
+        if let ref = event.payloadAfterRef, let loaded = payloadStore.loadPayload(id: ref),
+           let text = String(data: loaded, encoding: .utf8) {
+            event.payloadAfter = text
+        }
+        return AuditEntry(id: entry.id, event: event, previousHash: entry.previousHash, hash: entry.hash)
+    }
+
+    private func schedulePayloadCleanup() {
+        schedulePayloadCleanup(force: false)
+    }
+
+    func updatePayloadRetentionDays(_ days: Int) {
+        payloadStore.updateRetentionDays(days)
+        schedulePayloadCleanup(force: true)
+    }
+
+    private func schedulePayloadCleanup(force: Bool) {
+        let now = Date()
+        if !force, let last = lastPayloadCleanup, now.timeIntervalSince(last) < 60 * 60 * 12 {
+            return
+        }
+        lastPayloadCleanup = now
+        let referenced = referencedPayloadIds()
+        persistQueue.async { [payloadStore] in
+            payloadStore.pruneExpiredAndVacuum(referencedIds: referenced)
+        }
+    }
+
+    private func referencedPayloadIds() -> Set<String> {
+        var ids = Set<String>()
+        for entry in entries {
+            if let ref = entry.event.payloadBeforeRef {
+                ids.insert(ref)
+            }
+            if let ref = entry.event.payloadAfterRef {
+                ids.insert(ref)
+            }
+        }
+        return ids
+    }
+
+    func performPayloadVacuum(referenced: Set<String>) {
+        persistQueue.async { [payloadStore] in
+            payloadStore.pruneExpiredAndVacuum(referencedIds: referenced)
+        }
     }
 }
 
@@ -189,8 +321,11 @@ struct AuditEvent: Codable {
         case networkRedirectBlocked
         case networkResponseTruncated
         case networkCircuitTripped
+        case networkPayloadRedacted
+        case memorySnapshot
         case memoryStored
         case memoryDeleted
+        case memoryRollback
         case decodingSkipped
     }
 
@@ -201,6 +336,13 @@ struct AuditEvent: Codable {
     var allowed: Bool?
     var toolId: UUID?
     var toolResultHash: String?
+    var payloadBefore: String?
+    var payloadAfter: String?
+    var payloadTruncated: Bool?
+    var payloadBeforeRef: String?
+    var payloadAfterRef: String?
+    var memorySnapshot: MemorySnapshot?
+    var rollbackSnapshotId: UUID?
 
     static func planProposed(_ plan: WorkflowPlan) -> AuditEvent {
         AuditEvent(kind: .planProposed, summary: "Plan for intent: \(plan.intent)", timestamp: Date())
@@ -278,8 +420,27 @@ struct AuditEvent: Codable {
         AuditEvent(kind: .memoryStored, summary: "Memory stored: \(entry.trustLevel.rawValue)", timestamp: Date())
     }
 
+    static func memorySnapshot(_ snapshot: MemorySnapshot) -> AuditEvent {
+        let summary = "Memory snapshot before \(snapshot.origin)"
+        return AuditEvent(
+            kind: .memorySnapshot,
+            summary: summary,
+            timestamp: snapshot.timestamp,
+            memorySnapshot: snapshot
+        )
+    }
+
     static func memoryDeleted(_ entry: MemoryEntry) -> AuditEvent {
         AuditEvent(kind: .memoryDeleted, summary: "Memory deleted: \(entry.trustLevel.rawValue)", timestamp: Date())
+    }
+
+    static func memoryRollback(snapshotId: UUID) -> AuditEvent {
+        AuditEvent(
+            kind: .memoryRollback,
+            summary: "Memory rollback to snapshot \(snapshotId.uuidString.prefix(8))",
+            timestamp: Date(),
+            rollbackSnapshotId: snapshotId
+        )
     }
 
     static func decodingSkipped(path: String, index: Int, reason: String) -> AuditEvent {
@@ -326,6 +487,30 @@ struct AuditEvent: Codable {
             kind: .networkCircuitTripped,
             summary: "Circuit tripped for \(host). Cooling down for \(cooldownSeconds)s.",
             timestamp: Date()
+        )
+    }
+
+    static func networkPayloadRedacted(
+        decision: NetworkDecision,
+        beforePreview: String,
+        afterPreview: String,
+        beforeRef: String?,
+        afterRef: String?,
+        truncated: Bool
+    ) -> AuditEvent {
+        let host = decision.host ?? "unknown"
+        let summary = "Redacted outbound payload for \(decision.purpose.rawValue) -> \(host)"
+        return AuditEvent(
+            kind: .networkPayloadRedacted,
+            summary: summary,
+            timestamp: Date(),
+            purpose: decision.purpose,
+            allowed: true,
+            payloadBefore: beforePreview,
+            payloadAfter: afterPreview,
+            payloadTruncated: truncated,
+            payloadBeforeRef: beforeRef,
+            payloadAfterRef: afterRef
         )
     }
 }

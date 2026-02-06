@@ -43,6 +43,18 @@ enum AppPaths {
         appSupportDirectory.appendingPathComponent("audit.log")
     }
 
+    static var auditPayloadsDirectory: URL {
+        let dir = appSupportDirectory.appendingPathComponent("audit-payloads", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: dir.path) {
+            do {
+                try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            } catch {
+                AppLogger.storage.error("Failed to create audit payload directory: \(error.localizedDescription, privacy: .private)")
+            }
+        }
+        return dir
+    }
+
     static var networkPolicyURL: URL {
         appSupportDirectory.appendingPathComponent("network-policy.json")
     }
@@ -65,6 +77,18 @@ enum AppPaths {
 
     static var memorySummaryURL: URL {
         appSupportDirectory.appendingPathComponent("memory-summaries.json")
+    }
+
+    static var memorySnapshotsDirectory: URL {
+        let dir = appSupportDirectory.appendingPathComponent("memory-snapshots", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: dir.path) {
+            do {
+                try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            } catch {
+                AppLogger.storage.error("Failed to create memory snapshot directory: \(error.localizedDescription, privacy: .private)")
+            }
+        }
+        return dir
     }
 
     static var messagingPolicyURL: URL {

@@ -49,6 +49,12 @@ actor ToolRuntime {
             return result
         }
 
+        if let contract, contract.riskLevel != .low {
+            await MainActor.run {
+                memoryManager.captureSnapshot(origin: request.toolName)
+            }
+        }
+
         let baseLimits = contract?.limits ?? .default
         let limits = await MainActor.run {
             toolLimitsStore?.limits(for: request.toolName, fallback: baseLimits) ?? baseLimits
@@ -177,6 +183,10 @@ actor ToolRuntime {
             try accumulator.setValue(redacted, forKey: "result")
             if let resultsJSON = cleaned.resultsJSON {
                 try accumulator.setValue(resultsJSON, forKey: "cards")
+                if let data = resultsJSON.data(using: .utf8),
+                   let signature = InboundIdentityValidator.shared.signPayload(data) {
+                    try accumulator.setValue(signature, forKey: "cardsSignature")
+                }
             }
             let output = accumulator.finish()
             try enforceOutputLimit(output, maxBytes: limits.maxOutputBytes)

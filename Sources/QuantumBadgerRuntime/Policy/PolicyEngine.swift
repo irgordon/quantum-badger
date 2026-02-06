@@ -42,11 +42,13 @@ actor PolicyEngine {
     func grantToolSession(_ toolName: String) {
         toolSessionGrants.insert(toolName)
         auditLog.record(event: .permissionGranted("tool.session.\(toolName)"))
+        SystemEventBus.shared.post(.toolSessionGrantChanged(toolName: toolName))
     }
 
     func revokeToolSession(_ toolName: String) {
         toolSessionGrants.remove(toolName)
         auditLog.record(event: .permissionRevoked("tool.session.\(toolName)"))
+        SystemEventBus.shared.post(.toolSessionGrantChanged(toolName: toolName))
     }
 
     func isToolSessionGranted(_ toolName: String) -> Bool {

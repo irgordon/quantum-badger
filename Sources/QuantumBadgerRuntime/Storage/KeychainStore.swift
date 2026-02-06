@@ -9,13 +9,19 @@ final class KeychainStore {
     private let wrappedAccount: String
     private let secureEnclaveTag: Data
     private let secretsService: String
+    private let accessGroup: String?
 
-    init(service: String = "com.quantumbadger.vault", account: String = "primary") {
+    init(
+        service: String = "com.quantumbadger.vault",
+        account: String = "primary",
+        accessGroup: String? = nil
+    ) {
         self.service = service
         self.account = account
         self.wrappedAccount = "\(account).wrapped"
         self.secureEnclaveTag = "\(service).kek".data(using: .utf8) ?? Data()
         self.secretsService = "\(service).secrets"
+        self.accessGroup = accessGroup
     }
 
     func loadOrCreateKey() throws -> SymmetricKey {
@@ -39,14 +45,38 @@ final class KeychainStore {
         return key
     }
 
+    func loadOrCreateKeyData() throws -> Data {
+        if let wrapped = try loadKeyData(account: wrappedAccount),
+           let unwrapped = try decryptWrappedKeyData(wrapped) {
+            return unwrapped
+        }
+
+        if let data = try loadKeyData(account: account) {
+            return data
+        }
+
+        let key = SymmetricKey(size: .bits256)
+        let data = key.withUnsafeBytes { Data($0) }
+        if let wrapped = try encryptKeyDataForSecureEnclave(data) {
+            try saveKeyData(wrapped, account: wrappedAccount)
+            return data
+        }
+
+        try saveKeyData(data, account: account)
+        return data
+    }
+
     private func loadKeyData(account: String) throws -> Data? {
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
+        if let accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
 
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
@@ -60,13 +90,16 @@ final class KeychainStore {
     }
 
     private func saveKeyData(_ data: Data, account: String) throws {
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
             kSecValueData as String: data
         ]
+        if let accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
 
         let status = SecItemAdd(query as CFDictionary, nil)
         if status == errSecDuplicateItem {
@@ -79,11 +112,14 @@ final class KeychainStore {
     }
 
     private func updateKeyData(_ data: Data, account: String) throws {
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account
         ]
+        if let accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
 
         let attributes: [String: Any] = [
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
@@ -98,13 +134,16 @@ final class KeychainStore {
 
     func saveSecret(_ value: String, label: String) throws {
         let data = Data(value.utf8)
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: secretsService,
             kSecAttrAccount as String: label,
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
             kSecValueData as String: data
         ]
+        if let accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
 
         let status = SecItemAdd(query as CFDictionary, nil)
         if status == errSecDuplicateItem {
@@ -124,6 +163,9 @@ final class KeychainStore {
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
+        if let accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
         if let context {
             query[kSecUseAuthenticationContext as String] = context
         }
@@ -142,11 +184,14 @@ final class KeychainStore {
     }
 
     func deleteSecret(label: String) throws {
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: secretsService,
             kSecAttrAccount as String: label
         ]
+        if let accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
         let status = SecItemDelete(query as CFDictionary)
         if status != errSecSuccess && status != errSecItemNotFound {
             throw KeychainError.unhandled(status: status)
@@ -173,27 +218,36 @@ final class KeychainStore {
     }
 
     func deleteKey() {
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account
         ]
+        if let accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
         SecItemDelete(query as CFDictionary)
 
-        let wrappedQuery: [String: Any] = [
+        var wrappedQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: wrappedAccount
         ]
+        if let accessGroup {
+            wrappedQuery[kSecAttrAccessGroup as String] = accessGroup
+        }
         SecItemDelete(wrappedQuery as CFDictionary)
     }
 
     private func updateSecret(_ data: Data, label: String) throws {
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: secretsService,
             kSecAttrAccount as String: label
         ]
+        if let accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
         let attributes: [String: Any] = [
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
             kSecValueData as String: data

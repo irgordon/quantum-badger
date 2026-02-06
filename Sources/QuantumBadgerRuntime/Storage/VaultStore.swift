@@ -102,6 +102,13 @@ final class VaultStore {
         return BookmarkResolution(url: url, isStale: isStale)
     }
 
+    func bookmarkData(for reference: VaultReference, context: LAContext? = nil) -> Data? {
+        guard let stored = secret(forLabel: reference.label, context: context) else { return nil }
+        guard stored.hasPrefix("bookmark:") else { return nil }
+        let base64 = String(stored.dropFirst("bookmark:".count))
+        return Data(base64Encoded: base64)
+    }
+
     private func loadAsync() {
         let storageURL = storageURL
         let keychain = keychain

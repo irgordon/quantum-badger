@@ -2,6 +2,7 @@ import Foundation
 
 struct FilesystemWriteTool: SecureInjectionTool {
     let toolName: String = "filesystem.write"
+    private let fileWriter = FileWriterXPCClient()
 
     func run(
         request: ToolRequest,
@@ -10,8 +11,24 @@ struct FilesystemWriteTool: SecureInjectionTool {
         limits: ToolExecutionLimits
     ) async throws -> ToolResult {
         let contents = request.input["contents"] ?? ""
-        if let resolution = resolveBookmarkResolution(from: request, vaultStore: vaultStore, redactor: secretRedactor) {
-            if resolution.isStale {
+        guard let bookmarkData = resolveBookmarkData(from: request, vaultStore: vaultStore) else {
+            return ToolResult(
+                id: request.id,
+                toolName: request.toolName,
+                output: ["error": "Missing secure file location."],
+                succeeded: false,
+                finishedAt: Date()
+            )
+        }
+
+        do {
+            let response = try await fileWriter.writeFile(
+                requestId: request.id,
+                bookmarkData: bookmarkData,
+                contents: contents,
+                maxBytes: limits.maxFileBytes
+            )
+            if response.isStale {
                 return ToolResult(
                     id: request.id,
                     toolName: request.toolName,
@@ -23,87 +40,34 @@ struct FilesystemWriteTool: SecureInjectionTool {
                     finishedAt: Date()
                 )
             }
-            let didStart = resolution.url.startAccessingSecurityScopedResource()
-            defer {
-                if didStart { resolution.url.stopAccessingSecurityScopedResource() }
+            if let path = response.path {
+                secretRedactor.register(path)
             }
-            return write(contents: contents, to: resolution.url, toolName: request.toolName, id: request.id)
-        }
-        let path = resolvePath(from: request, vaultStore: vaultStore, redactor: secretRedactor)
-        guard let path, !path.isEmpty else {
             return ToolResult(
                 id: request.id,
                 toolName: request.toolName,
-                output: ["error": "Missing file path."],
-                succeeded: false,
-                finishedAt: Date()
-            )
-        }
-
-        do {
-            let url = URL(fileURLWithPath: path)
-            return write(contents: contents, to: url, toolName: request.toolName, id: request.id)
-        } catch {
-            return ToolResult(
-                id: request.id,
-                toolName: request.toolName,
-                output: ["error": "Couldn’t write the file."],
-                succeeded: false,
-                finishedAt: Date()
-            )
-        }
-    }
-
-    private func write(contents: String, to url: URL, toolName: String, id: UUID) -> ToolResult {
-        do {
-            let data = Data(contents.utf8)
-            try data.write(to: url, options: [.atomic])
-            return ToolResult(
-                id: id,
-                toolName: toolName,
-                output: ["status": "written", "path": url.path],
+                output: ["status": "written", "path": response.path ?? ""],
                 succeeded: true,
                 finishedAt: Date()
             )
         } catch {
+            let message = error is CancellationError ? "File write cancelled." : "Couldn’t write the file."
             return ToolResult(
-                id: id,
-                toolName: toolName,
-                output: ["error": "Couldn’t write the file."],
+                id: request.id,
+                toolName: request.toolName,
+                output: ["error": message],
                 succeeded: false,
                 finishedAt: Date()
             )
         }
     }
 
-    private func resolveBookmarkResolution(
-        from request: ToolRequest,
-        vaultStore: VaultStore,
-        redactor: SecretRedactor
-    ) -> VaultStore.BookmarkResolution? {
-        if let refLabel = request.input["pathRef"],
-           let references = request.vaultReferences,
-           let reference = references.first(where: { $0.label == refLabel }),
-           let resolution = vaultStore.bookmarkResolution(for: reference) {
-            redactor.register(resolution.url.path)
-            return resolution
+    private func resolveBookmarkData(from request: ToolRequest, vaultStore: VaultStore) -> Data? {
+        guard let refLabel = request.input["pathRef"],
+              let references = request.vaultReferences,
+              let reference = references.first(where: { $0.label == refLabel }) else {
+            return nil
         }
-        return nil
-    }
-
-    private func resolvePath(
-        from request: ToolRequest,
-        vaultStore: VaultStore,
-        redactor: SecretRedactor
-    ) -> String? {
-        if let refLabel = request.input["pathRef"],
-           let references = request.vaultReferences,
-           let reference = references.first(where: { $0.label == refLabel }),
-           let secretPath = vaultStore.secret(for: reference),
-           !secretPath.hasPrefix("bookmark:") {
-            redactor.register(secretPath)
-            return secretPath
-        }
-        return nil
+        return vaultStore.bookmarkData(for: reference)
     }
 }

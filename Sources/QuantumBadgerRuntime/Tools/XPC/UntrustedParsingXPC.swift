@@ -7,7 +7,7 @@ import Security
         allowlist: [String],
         maxParseSeconds: Double,
         maxAnchorScans: Int,
-        withReply reply: @escaping (String?, String?) -> Void
+        withReply reply: @escaping (String?, String?, String?) -> Void
     )
 }
 
@@ -96,12 +96,21 @@ final class UntrustedParsingXPCClient: UntrustedParsingService {
                 allowlist: allowlist,
                 maxParseSeconds: maxParseSeconds,
                 maxAnchorScans: maxAnchorScans
-            ) { result, error in
+            ) { result, signature, error in
                 connection.invalidate()
                 if let error {
                     resumeOnce(.failure(UntrustedParsingError.remote(error)))
                 } else {
-                    resumeOnce(.success(result ?? ""))
+                    guard let result, let signature else {
+                        resumeOnce(.failure(UntrustedParsingError.unavailable))
+                        return
+                    }
+                    let data = Data(result.utf8)
+                    if !InboundIdentityValidator.shared.verifyPayload(data, signature: signature) {
+                        resumeOnce(.failure(UntrustedParsingError.unavailable))
+                        return
+                    }
+                    resumeOnce(.success(result))
                 }
             }
         }

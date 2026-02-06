@@ -189,4 +189,5 @@ struct ToolResult: Codable {
     var output: [String: String]
     var succeeded: Bool
     var finishedAt: Date
+    var normalizedMessages: [QuantumMessage]? = nil
 }

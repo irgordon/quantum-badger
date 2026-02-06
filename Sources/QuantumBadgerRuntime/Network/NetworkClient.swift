@@ -96,6 +96,7 @@ actor NetworkClient: NSObject {
         timedRequest.timeoutInterval = decision.endpoint.timeoutSeconds
         timedRequest.setValue(defaultUserAgent(), forHTTPHeaderField: "User-Agent")
         timedRequest.setValue(nil, forHTTPHeaderField: "Cookie")
+        timedRequest = redactJSONPayloadIfNeeded(timedRequest, decision: decision)
 
         let collector = StreamingDataCollector(
             maxBytes: decision.endpoint.maxResponseBytes,
@@ -169,6 +170,28 @@ actor NetworkClient: NSObject {
         let arch = "Macintosh"
         return "QuantumBadger/1.0 (\(arch); Intel Mac OS X \(osString))"
     }
+
+    private func redactJSONPayloadIfNeeded(_ request: URLRequest, decision: NetworkDecision) -> URLRequest {
+        guard let body = request.httpBody else { return request }
+        guard shouldRedactJSONBody(request, body: body) else { return request }
+        let redacted = NetworkPayloadRedactor.redactJSONPayload(body)
+        guard redacted.didRedact else { return request }
+        auditLog.recordNetworkPayloadRedaction(decision: decision, before: body, after: redacted.data)
+        var updated = request
+        updated.httpBody = redacted.data
+        return updated
+    }
+
+    private func shouldRedactJSONBody(_ request: URLRequest, body: Data) -> Bool {
+        if let contentType = request.value(forHTTPHeaderField: "Content-Type")?.lowercased() {
+            if contentType.contains("application/json") || contentType.contains("+json") {
+                return true
+            }
+        }
+        return NetworkPayloadRedactor.isLikelyJSON(body)
+    }
+
+    // Payload redaction audit entries are now recorded via AuditLog to keep large data externalized.
 
     private func evaluate(request: URLRequest, purpose: NetworkPurpose) async throws -> NetworkDecision {
         let purposeEnabled = await MainActor.run { policy.isPurposeEnabled(purpose) }
