@@ -12,6 +12,8 @@ struct SettingsView: View {
     let bookmarkStore: BookmarkStore
     let memoryManager: MemoryManager
     let untrustedParsingPolicy: UntrustedParsingPolicyStore
+    let identityPolicy: IdentityPolicyStore
+    let auditRetentionPolicy: AuditRetentionPolicyStore
     let messagingPolicy: MessagingPolicyStore
     let webFilterStore: WebFilterStore
     let openCircuitsStore: OpenCircuitsStore
@@ -32,6 +34,7 @@ struct SettingsView: View {
     @State private var showAuditDump: Bool = false
     @State private var showPolicyDump: Bool = false
     @State private var showNetworkDump: Bool = false
+    @State private var showNetworkAudit: Bool = false
     @State private var contactNameDraft: String = ""
     @State private var contactHandleDraft: String = ""
     @State private var conversationKeyDraft: String = ""
@@ -43,6 +46,13 @@ struct SettingsView: View {
     @State private var memoryExportNotice: String?
     @State private var allowedHTMLTagsText: String = ""
     @State private var allowedTagsDebounceTask: Task<Void, Never>?
+    @State private var toolSessionGrants: [String] = []
+    @State private var healthReport: PersistenceHealthReport?
+    @State private var isHealthCheckRunning: Bool = false
+    @State private var healthFixMessage: String?
+    @State private var healthFixTask: Task<Void, Never>?
+    @State private var snapshotCleanNotice: String?
+    @State private var showSnapshotCleanConfirm: Bool = false
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -64,6 +74,35 @@ struct SettingsView: View {
                     Text("Only the folders you choose are used, and everything stays on this Mac.")
                         .font(.caption)
                         .foregroundColor(.secondary)
+
+                    Divider()
+
+                    Text("Active Tool Sessions")
+                        .font(.headline)
+                    Text("These permissions last until you quit the app.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    if toolSessionGrants.isEmpty {
+                        Text("No active tool sessions.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    } else {
+                        ForEach(toolSessionGrants, id: \.self) { toolName in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(toolDisplayName(toolName))
+                                    Text("Impact: \(toolRiskLabel(toolName))")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+                                Spacer()
+                                Button("Revoke") {
+                                    Task { await securityCapabilities.policy.revokeToolSession(toolName) }
+                                }
+                                .buttonStyle(.bordered)
+                            }
+                        }
+                    }
 
                     Divider()
 
@@ -550,7 +589,7 @@ struct SettingsView: View {
                         .foregroundColor(.secondary)
 
                     MemoryEntryForm(memoryManager: memoryManager)
-                    MemoryTimelineView(memoryManager: memoryManager)
+                    MemoryTimelineView(memoryManager: memoryManager, auditLog: auditLog)
 
                     Divider()
 
@@ -654,6 +693,97 @@ struct SettingsView: View {
                                 .buttonStyle(.bordered)
                             Button("View Network Policy") { showNetworkDump = true }
                                 .buttonStyle(.bordered)
+                            Button("View Network Redactions") { showNetworkAudit = true }
+                                .buttonStyle(.bordered)
+                        }
+                    }
+
+                    GroupBox("Storage Health") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Button("Run Health Check") {
+                                guard !isHealthCheckRunning else { return }
+                                isHealthCheckRunning = true
+                                healthFixMessage = nil
+                                Task {
+                                    healthReport = await PersistenceHealthCheck.run(auditLog: auditLog)
+                                    isHealthCheckRunning = false
+                                }
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(isHealthCheckRunning)
+
+                            if isHealthCheckRunning {
+                                HStack(spacing: 8) {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                    Text("Health check in progress…")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+
+                            if let report = healthReport {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Audit entries: \(report.auditEntryCount)")
+                                        .font(.caption)
+                                    Text("Payload files: \(report.payloadFileCount) (referenced \(report.referencedPayloadCount))")
+                                        .font(.caption)
+                                        .foregroundColor(report.payloadCountMatches ? .secondary : .orange)
+                                    Text(report.auditChainValid ? "Audit chain verified." : "Audit chain mismatch detected.")
+                                        .font(.caption)
+                                        .foregroundColor(report.auditChainValid ? .secondary : .red)
+                                    if !report.payloadHashCombined.isEmpty {
+                                        Text("Payload hash: \(report.payloadHashCombined.prefix(12))…")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    if report.payloadUnreadableCount > 0 {
+                                        Text("Unreadable payloads: \(report.payloadUnreadableCount)")
+                                            .font(.caption)
+                                            .foregroundColor(.orange)
+                                    }
+                                }
+                                if report.payloadUnreadableCount > 0 {
+                                    Button("Health Auto-Fix") {
+                                        healthFixTask?.cancel()
+                                        healthFixTask = Task {
+                                            let result = await HealthAutoFixer.run(auditLog: auditLog, report: report)
+                                            await MainActor.run {
+                                                healthFixMessage = result.message
+                                                healthFixTask = nil
+                                            }
+                                        }
+                                    }
+                                    .buttonStyle(.bordered)
+                                    if healthFixTask != nil {
+                                        Button("Cancel Auto-Fix") {
+                                            healthFixTask?.cancel()
+                                            healthFixTask = nil
+                                            healthFixMessage = "Auto-fix cancelled."
+                                        }
+                                        .buttonStyle(.bordered)
+                                    }
+                                }
+                                if let healthFixMessage {
+                                    Text(healthFixMessage)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+
+                            Button("Deep Clean Snapshots") {
+                                showSnapshotCleanConfirm = true
+                            }
+                            .buttonStyle(.bordered)
+                            Text("Keeps the most recent snapshot and removes older snapshot files.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                            if let snapshotCleanNotice {
+                                Text(snapshotCleanNotice)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
                         }
                     }
 
@@ -701,6 +831,55 @@ struct SettingsView: View {
                             .labelsHidden()
                         }
                         Text("Lower limits are safer but may miss results on complex pages.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    GroupBox("Identity Verification") {
+                        HStack {
+                            Text("Hash payloads larger than")
+                            Spacer()
+                            Stepper(
+                                value: Binding(
+                                    get: { identityPolicy.hashThresholdBytes / 1024 },
+                                    set: { identityPolicy.setHashThresholdBytes($0 * 1024) }
+                                ),
+                                in: 16...1024,
+                                step: 16
+                            ) {
+                                Text("\(identityPolicy.hashThresholdBytes / 1024) KB")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .labelsHidden()
+                        }
+                        Text("Larger payloads are signed by hash to reduce IPC overhead.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    GroupBox("Audit Retention") {
+                        HStack {
+                            Text("Keep redaction payloads for")
+                            Spacer()
+                            Stepper(
+                                value: Binding(
+                                    get: { auditRetentionPolicy.retentionDays },
+                                    set: { newValue in
+                                        auditRetentionPolicy.setRetentionDays(newValue)
+                                        auditLog.updatePayloadRetentionDays(auditRetentionPolicy.retentionDays)
+                                    }
+                                ),
+                                in: 7...365,
+                                step: 1
+                            ) {
+                                Text("\(auditRetentionPolicy.retentionDays) days")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .labelsHidden()
+                        }
+                        Text("Older payload details are removed to save disk space.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -764,6 +943,22 @@ struct SettingsView: View {
                     networkPolicyJSON
                 }
             }
+            .sheet(isPresented: $showNetworkAudit) {
+                NetworkAuditView(auditLog: auditLog)
+            }
+        }
+        .confirmationDialog(
+            "Deep Clean Snapshots?",
+            isPresented: $showSnapshotCleanConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Clean Snapshots", role: .destructive) {
+                let removed = memoryManager.pruneSnapshotsKeepingMostRecent(1)
+                snapshotCleanNotice = removed == 0 ? "No snapshot files removed." : "Removed \(removed) snapshot folders."
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes older snapshot files to save disk space. The most recent snapshot is kept.")
         }
         .tabItem {
             Label("Advanced", systemImage: "wrench.and.screwdriver")
@@ -786,6 +981,14 @@ struct SettingsView: View {
         }
         .onChange(of: untrustedParsingPolicy.preset) { _, _ in
             allowedHTMLTagsText = untrustedParsingPolicy.allowedTags.joined(separator: ", ")
+        }
+        .task { await refreshToolSessionGrants() }
+        .task {
+            for await event in SystemEventBus.shared.stream() {
+                if case .toolSessionGrantChanged = event {
+                    await refreshToolSessionGrants()
+                }
+            }
         }
     }
 
@@ -889,6 +1092,27 @@ struct SettingsView: View {
             return "Normal"
         }
         return "Offline"
+    }
+
+    @MainActor
+    private func refreshToolSessionGrants() async {
+        let snapshot = await securityCapabilities.policy.snapshot()
+        toolSessionGrants = snapshot.toolSessionGrants
+    }
+
+    private func toolDisplayName(_ toolName: String) -> String {
+        ToolCatalog.contract(for: toolName)?.name ?? toolName
+    }
+
+    private func toolRiskLabel(_ toolName: String) -> String {
+        switch ToolCatalog.contract(for: toolName)?.riskLevel {
+        case .high:
+            return "High"
+        case .medium:
+            return "Medium"
+        default:
+            return "Low"
+        }
     }
 
     private var auditLogJSON: String {

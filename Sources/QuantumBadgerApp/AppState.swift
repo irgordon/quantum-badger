@@ -25,6 +25,7 @@ struct StorageCapabilities {
     let auditLog: AuditLog
     let memoryManager: MemoryManager
     let bookmarkStore: BookmarkStore
+    let auditRetentionPolicy: AuditRetentionPolicyStore
 }
 
 struct RuntimeCapabilities {
@@ -50,6 +51,8 @@ final class AppState {
     let storageCapabilities: StorageCapabilities
     let runtimeCapabilities: RuntimeCapabilities
     let untrustedParsingPolicy: UntrustedParsingPolicyStore
+    let identityPolicy: IdentityPolicyStore
+    let auditRetentionPolicy: AuditRetentionPolicyStore
     let messagingPolicy: MessagingPolicyStore
     let webFilterStore: WebFilterStore
     let toolLimitsStore: ToolLimitsStore
@@ -68,6 +71,8 @@ final class AppState {
         let messagingPolicy = MessagingPolicyStore()
         let webFilterStore = WebFilterStore()
         let toolLimitsStore = ToolLimitsStore()
+        let identityPolicy = IdentityPolicyStore()
+        let auditRetentionPolicy = AuditRetentionPolicyStore()
         let policy = PolicyEngine(auditLog: auditLog, messagingPolicy: messagingPolicy)
         let memoryManager = MemoryManager(modelContext: modelContext, auditLog: auditLog)
         let toolApprovalManager = ToolApprovalManager(webFilterStore: webFilterStore)
@@ -123,7 +128,8 @@ final class AppState {
             vaultStore: vaultStore,
             auditLog: auditLog,
             memoryManager: memoryManager,
-            bookmarkStore: bookmarkStore
+            bookmarkStore: bookmarkStore,
+            auditRetentionPolicy: auditRetentionPolicy
         )
         let runtimeCapabilities = RuntimeCapabilities(
             orchestrator: orchestrator,
@@ -137,9 +143,13 @@ final class AppState {
         self.storageCapabilities = storageCapabilities
         self.runtimeCapabilities = runtimeCapabilities
         self.untrustedParsingPolicy = untrustedParsingPolicy
+        self.identityPolicy = identityPolicy
+        self.auditRetentionPolicy = auditRetentionPolicy
         self.messagingPolicy = messagingPolicy
         self.webFilterStore = webFilterStore
         self.toolLimitsStore = toolLimitsStore
+
+        auditLog.updatePayloadRetentionDays(auditRetentionPolicy.retentionDays)
 
     }
 

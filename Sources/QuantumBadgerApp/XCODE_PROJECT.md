@@ -66,7 +66,40 @@ Quantum Badger includes a minimal XPC helper for untrusted parsing.
    - `com.quantumbadger.UntrustedParser`
 2. Use `Sources/QuantumBadgerUntrustedParser/main.swift` as the service entry point.
 3. Ensure the main app and XPC service are both sandboxed.
+4. Attach the entitlements file:
+   - `Sources/QuantumBadgerUntrustedParser/QuantumBadgerUntrustedParser.entitlements`
 4. If you change the service bundle identifier, update the client in:
    - `Sources/QuantumBadgerRuntime/Tools/XPC/UntrustedParsingXPC.swift`
 
 Note: SwiftPM builds the helper target as an executable. Xcode needs the XPC Service target wired so the app can launch it as a mach service.
+
+## XPC Helpers (High-Risk Tools)
+Filesystem writes and database queries run in isolated XPC services.
+
+### File Writer XPC
+1. Add an **XPC Service** target with bundle identifier:
+   - `com.quantumbadger.FileWriter`
+2. Set its entry point to:
+   - `Sources/QuantumBadgerFileWriter/main.swift`
+3. Attach entitlements:
+   - `Sources/QuantumBadgerFileWriter/QuantumBadgerFileWriter.entitlements`
+4. Ensure the Info.plist for the service uses the Mach service name:
+   - `Sources/QuantumBadgerFileWriter/Info.plist`
+5. If you rename the service, update:
+   - `Sources/QuantumBadgerRuntime/Tools/XPC/FileWriterXPC.swift`
+
+### Secure DB XPC
+1. Add an **XPC Service** target with bundle identifier:
+   - `com.quantumbadger.SecureDB`
+2. Set its entry point to:
+   - `Sources/QuantumBadgerSecureDB/main.swift`
+3. Attach entitlements:
+   - `Sources/QuantumBadgerSecureDB/QuantumBadgerSecureDB.entitlements`
+4. Ensure the Info.plist for the service uses the Mach service name:
+   - `Sources/QuantumBadgerSecureDB/Info.plist`
+5. If you rename the service, update:
+   - `Sources/QuantumBadgerRuntime/Tools/XPC/DatabaseQueryXPC.swift`
+
+### Entitlement Notes
+- Both services use `com.apple.security.inherit` so they inherit the app sandbox.
+- The app target should remain sandboxed with user-selected read/write access only.

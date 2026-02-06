@@ -1,8 +1,10 @@
 import SwiftUI
+import AppKit
 import QuantumBadgerRuntime
 
 struct MemoryTimelineView: View {
     let memoryManager: MemoryManager
+    let auditLog: AuditLog
     private let authManager = AuthenticationManager()
 
     @State private var entries: [MemoryEntry] = []
@@ -10,6 +12,10 @@ struct MemoryTimelineView: View {
     @State private var selectedProposal: MemoryEntry?
     @State private var showInspector: Bool = false
     @State private var showResetConfirm: Bool = false
+    @State private var showRollbackConfirm: Bool = false
+    @State private var showRestartPrompt: Bool = false
+    @State private var selectedSnapshot: MemorySnapshot?
+    @State private var rollbackMessage: String?
     @State private var errorMessage: String?
     @State private var isLoadingPage: Bool = false
     @State private var pageOffset: Int = 0
@@ -24,12 +30,45 @@ struct MemoryTimelineView: View {
             Text("Memory Timeline")
                 .font(.headline)
 
+            GroupBox("Snapshots") {
+                let snapshots = snapshotEntries
+                if snapshots.isEmpty {
+                    Text("No snapshots captured yet.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    ForEach(snapshots) { snapshot in
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text(snapshot.timestamp.formatted(date: .abbreviated, time: .shortened))
+                                    .font(.caption)
+                                Spacer()
+                                Text(snapshot.origin)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            Text("Changes since last snapshot: \(snapshot.modifiedPersistentCount)")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            HStack {
+                                Button("Restore") {
+                                    selectedSnapshot = snapshot
+                                    showRollbackConfirm = true
+                                }
+                                .buttonStyle(.bordered)
+                            }
+                        }
+                        Divider()
+                    }
+                }
+            }
+
             if let issue = memoryManager.recoveryIssue {
                 GroupBox("Memory Vault Needs Attention") {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(recoveryText(for: issue))
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                         Button("Reset Memory Vault") {
                             showResetConfirm = true
                         }
@@ -191,6 +230,29 @@ struct MemoryTimelineView: View {
         } message: {
             Text("This erases all stored memories on this Mac. This cannot be undone.")
         }
+        .confirmationDialog(
+            "Restore Snapshot?",
+            isPresented: $showRollbackConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Restore Snapshot", role: .destructive) {
+                performRollback()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will restore the memory vault to the selected snapshot and requires a restart.")
+        }
+        .alert("Restart Required", isPresented: $showRestartPrompt) {
+            Button("Save & Relaunch") {
+                AppRestartManager.relaunch(afterSave: {
+                    await auditLog.flush()
+                    await memoryManager.flush()
+                })
+            }
+            Button("Later", role: .cancel) {}
+        } message: {
+            Text("Quantum Badger restored the snapshot. Relaunch to reload the memory vault.")
+        }
     }
 
     private func loadTimeline() async {
@@ -240,6 +302,23 @@ struct MemoryTimelineView: View {
     private var filteredEntries: [MemoryEntry] {
         guard let selectedTrustLevel else { return entries }
         return entries.filter { $0.trustLevel == selectedTrustLevel }
+    }
+
+    private var snapshotEntries: [MemorySnapshot] {
+        auditLog.entries.compactMap { $0.event.memorySnapshot }
+            .sorted { $0.timestamp > $1.timestamp }
+    }
+
+    private func performRollback() {
+        guard let snapshot = selectedSnapshot else { return }
+        let result = memoryManager.rollback(to: snapshot.id)
+        if result.succeeded {
+            rollbackMessage = result.message
+            showRestartPrompt = result.requiresRestart
+            refreshTimeline()
+        } else {
+            errorMessage = result.message
+        }
     }
 }
 

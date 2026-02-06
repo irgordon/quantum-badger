@@ -483,22 +483,24 @@ struct DetailView: View {
                 reachability: reachability
             )
         case .settings:
-            SettingsView(
-                securityCapabilities: securityCapabilities,
-                auditLog: auditLog,
-                exportAction: exportAction,
-                modelRegistry: modelRegistry,
-                modelSelection: modelSelection,
-                resourcePolicy: resourcePolicy,
-                reachability: reachability,
-                bookmarkStore: bookmarkStore,
-                memoryManager: memoryManager,
-                untrustedParsingPolicy: appState.untrustedParsingPolicy,
-                messagingPolicy: appState.messagingPolicy,
-                webFilterStore: appState.webFilterStore,
-                openCircuitsStore: appState.openCircuitsStore,
-                selectedTab: settingsSelection
-            )
+                SettingsView(
+                    securityCapabilities: securityCapabilities,
+                    auditLog: auditLog,
+                    exportAction: exportAction,
+                    modelRegistry: modelRegistry,
+                    modelSelection: modelSelection,
+                    resourcePolicy: resourcePolicy,
+                    reachability: reachability,
+                    bookmarkStore: bookmarkStore,
+                    memoryManager: memoryManager,
+                    untrustedParsingPolicy: appState.untrustedParsingPolicy,
+                    identityPolicy: appState.identityPolicy,
+                    auditRetentionPolicy: appState.auditRetentionPolicy,
+                    messagingPolicy: appState.messagingPolicy,
+                    webFilterStore: appState.webFilterStore,
+                    openCircuitsStore: appState.openCircuitsStore,
+                    selectedTab: settingsSelection
+                )
         }
     }
 }

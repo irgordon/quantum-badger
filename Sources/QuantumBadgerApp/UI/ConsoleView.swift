@@ -258,11 +258,7 @@ struct ConsoleView: View {
 
     private func applyWebCards(from result: ToolResult) {
         guard result.toolName == "web.scout" else { return }
-        if let cards = decodeWebCards(from: result) {
-            webCards = cards
-        } else {
-            webCards = []
-        }
+        webCards = decodeWebCards(from: result) ?? []
         webCardsNotice = webCardsNotice(from: result)
     }
 
@@ -344,6 +340,11 @@ private func decodeMatches(from result: ToolResult) -> [LocalSearchMatch]? {
 
 private func decodeWebCards(from result: ToolResult) -> [WebScoutResult]? {
     guard let json = result.output["cards"] else { return nil }
+    guard let signature = result.output["cardsSignature"],
+          let data = json.data(using: .utf8),
+          InboundIdentityValidator.shared.verifyPayload(data, signature: signature) else {
+        return nil
+    }
     let results = WebScoutACL.decodeResultsJSON(json)
     return results.isEmpty ? nil : results
 }
@@ -459,6 +460,11 @@ private func searchNoticeText(from result: ToolResult) -> String? {
 
 private func webCardsNotice(from result: ToolResult) -> String? {
     guard result.toolName == "web.scout" else { return nil }
+    if result.output["cards"] != nil,
+       result.output["cardsSignature"] != nil,
+       decodeWebCards(from: result) == nil {
+        return "Web results couldn’t be verified. Try again."
+    }
     if result.succeeded {
         return "Here are the web results I found."
     }
