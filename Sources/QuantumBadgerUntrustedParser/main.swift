@@ -12,7 +12,7 @@ final class UntrustedParsingService: NSObject, UntrustedParsingXPCProtocol {
         allowlist: [String],
         maxParseSeconds: Double,
         maxAnchorScans: Int,
-        withReply reply: @escaping (String?, String?) -> Void
+        withReply reply: @escaping (String?, String?, String?) -> Void
     ) {
         guard data.count <= maxInputBytes else {
             reply(nil, "Input too large for safe parsing.")
@@ -29,7 +29,9 @@ final class UntrustedParsingService: NSObject, UntrustedParsingXPCProtocol {
         )
         let output = parsedResults.isEmpty ? sanitizeHTML(text, allowlist: allowlist) : parsedResults
         let preview = String(output.prefix(1_000_000))
-        reply(preview, nil)
+        let previewData = Data(preview.utf8)
+        let signature = InboundIdentityValidator.shared.signPayloadZeroing(previewData)
+        reply(preview, signature, signature == nil ? "Unable to sign response." : nil)
     }
 
     private func parseDuckDuckGoResults(html: String, deadline: Date, maxAnchorScans: Int) -> String {
