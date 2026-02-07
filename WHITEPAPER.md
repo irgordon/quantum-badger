@@ -79,6 +79,21 @@ For deterministic stability during intensive workloads, users can toggle **Safe 
 
 To ensure the system remains responsive, Badger utilizes a **Deterministic Priority Queue** within the `HybridExecutionManager`. This allows the runtime to triage tasks based on their impact on system stability rather than simple arrival time.
 
+#### **5.4 Thermal Safeguards and Emergency State Persistence**
+
+When local GGUF inference pushes the SoC toward its thermal limit, the **NPUThermalWatcher** executes a tiered defensive strategy:
+
+1. **Throttling (.serious):** Badger signals the NPU to reduce its power envelope, prioritizing system stability over inference speed.
+2. **Emergency Shutdown (.critical):** The PPS triggers a **Tier 0 Cancellation**. To ensure no data is lost during a sudden shutdown, Badger performs an **Atomic Flush**—writing the current conversation buffer and audit logs to the SSD in a single non-blocking burst before yielding all resources to the OS.
+
+#### **5.5 Dynamic Memory Budgeting**
+
+To ensure Quantum Badger never causes a kernel-level hang on baseline hardware, the `ModelLoader` implements **Context-Aware Fit Checks**. Every load request is validated against the **OS Memory Availability Matrix**:
+
+1. **Physical Floor:** A hard macOS reserve of 3.0 GB is maintained at all times.
+2. **KV-Cache Scaling:** Memory estimates scale linearly with `contextTokens`, ensuring large context windows are rejected on 8GB machines if they would force system-wide swap.
+3. **Pressure-Aware Admission:** Inference engines are denied entry to the NPU/GPU if the system reports `Warning` or `Critical` memory pressure, protecting the user's active workflow from interruption.
+
 #### **The Priority Hierarchy**
 
 Badger categorizes all runtime requests into three distinct tiers:
