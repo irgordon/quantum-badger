@@ -4,47 +4,80 @@
   <img src="logo.png" alt="Quantum Badger Logo" width="250" />
 </p>
 
-## Overview
-Quantum Badger is your private, always‑available digital assistant that works quietly in the background to keep life running smoothly. It remembers what matters, helps manage tasks, and delivers timely updates—only reaching out when it’s genuinely useful. Thoughtfully designed with privacy at its core, Quantum Badger connects securely to trusted services when needed, while keeping you firmly in control. No noise, no surprises—just a dependable partner that stays one step ahead, so you don’t have to.
+**Quantum Badger** is a local-first, privacy-obsessed autonomous agent for macOS. Built for the high-concurrency demands of 2026, it turns your Mac into a private sanctuary for AI reasoning, ensuring that your data, your intent, and your hardware remains entirely under your control.
 
-## Why Quantum Badger
-- Local‑first by default: inference, memory, and logs stay on-device.
-- Strong guardrails: explicit approvals, scoped capabilities, and auditable actions.
-- Native macOS behavior: SwiftUI-first UI, App Sandbox, security-scoped bookmarks.
-- Secure storage: CryptoKit + Keychain/Secure Enclave for secrets and vault data.
+---
 
-## System Requirements
-- macOS 13 (Ventura) or newer
-- Apple Silicon recommended (Intel supported if models allow)
-- Xcode 15+ or Swift 5.9+ toolchain
+## 🛡️ Core Principles
 
-## Quick Start
-1. Open the repository as a Swift Package in Xcode.
-2. Build and run the `QuantumBadgerApp` target.
-3. In Settings, choose a local model and configure allowed tools/web domains.
+Quantum Badger is founded on **Local-First Sovereignty**. Unlike traditional agents that act as "Cloud Proxies," Badger treats the cloud as a secondary utility, not a requirement.
 
-## Architecture
-- **UI Shell**: SwiftUI + Observation for state management.
-- **Orchestrator**: intent → plan → policy evaluation → tool/model execution.
-- **Tool Runtime**: capability-gated tools with timeouts, limits, and audit logs.
-- **Model Runtime**: pluggable local/cloud adapters with policy‑gated prompts.
-- **Security Layer**: Keychain/SE keys, redaction, permissions, audit chain.
-- **XPC Helpers**: isolated parsing for untrusted content.
+### 1. Identity-Bound Sovereignty
 
-## Key Technologies (Tech Stack)
-- Swift 6, SwiftUI, Observation (`@Observable`)
-- SwiftData (local persistence)
-- CryptoKit + Keychain + Secure Enclave
-- App Sandbox + security-scoped bookmarks
-- Network framework + URLSession (policy‑gated)
-- NSSharingService + AppIntents (messaging drafts)
-- XPC services for untrusted parsing
+Your agent's memory, permissions, and encryption keys are cryptographically tethered to a hardware-backed **Root Identity**.
 
-## Contributing
-- Keep changes scoped and reviewable.
-- Prefer safety and correctness over cleverness.
-- Follow the existing approval, policy, and audit patterns.
+* **Handshake Integrity:** Onboarding is re-triggered automatically if your core local identity key data changes.
+* **Biometric Guarding:** Sensitive actions (sending messages, modifying files) require mandatory Touch ID or Optic ID approval.
 
-## Documentation & License
-- Documentation: `Sources/QuantumBadgerApp/XCODE_PROJECT.md`, `AUDIT_REPORT.md`
-- License: MIT License `LICENSE.md`
+### 2. Forensic Transparency
+
+Badger provides an immutable, append-only **Audit Log** of every thought and action.
+
+* **Sovereignty Receipts:** Generate signed PDF receipts of any interaction, proving the provenance and integrity of the agent's reasoning.
+* **Integrity Status:** Every message is cryptographically checked for tampered content.
+
+### 3. Dynamic Reasoning & Planning
+
+Badger doesn't follow rigid scripts. It analyzes your intent using a local reasoning loop to build safe, multi-step plans.
+
+* **Schema-Locked Tools:** Every tool is validated against the `AppIntentScanner` manifest. Badger can't use tools that haven't been verified.
+* **Side-Effect-Free Reasoning:** Planning happens in a sandbox where tool-loop execution is physically disabled until the user approves the plan.
+
+---
+
+## 📉 Hardware Intelligence (The 8GB Baseline)
+
+Quantum Badger is the first agent optimized for the "Unified Memory" constraints of 8GB M1/M2/M3 Macs. It treats your RAM as a scarce, shared commodity.
+
+### The "Yield-First" Memory Policy
+
+* **The 30-Second Rule:** On baseline hardware, local models are automatically purged from VRAM after **30 seconds of inactivity**, returning ~4GB of RAM to the OS instantly.
+* **Context Capping:** To prevent system-wide OOM (Out of Memory) crashes, conversation context is capped at **2048 tokens** on 8GB machines.
+* **Heavy-App Sentinel:** If you launch a professional tool (Xcode, Final Cut Pro, Premiere), Badger detects the launch and proactively evicts its LLM to give your project maximum headroom.
+
+### Cloud-Only Safe Mode
+
+When you need 100% of your local silicon for heavy creative tasks, toggle **Safe Mode**.
+
+* **Zero Footprint:** Offloads all reasoning to **ChatGPT** via macOS 16’s native secure integration, pinning local RAM and NPU usage to zero.
+* **The Redaction Gate:** Even in Safe Mode, Badger’s local policy engine redacts sensitive data from your prompts *before* they are sent to the cloud.
+
+---
+
+## 🛠️ Security Architecture
+
+| Feature | Logic | Human-in-the-Loop (HITL) |
+| --- | --- | --- |
+| **Messaging** | Delegate-verified native sharing | Mandatory User Confirmation |
+| **Filesystem** | Vault-labeled path references | Mandatory User Confirmation |
+| **Automation** | System-operator capability scan | Mandatory User Confirmation |
+| **Identity** | Stable Key-Data Fingerprinting | Automated Validation |
+
+---
+
+## 🚀 Getting Started
+
+1. **Initialize Identity:** Create your local Root Identity and secure your Recovery Phrase.
+2. **Onboarding Handshake:** Follow the context-aware primers to grant Accessibility and Biometric access.
+3. **Sync Capabilities:** Badger will scan your Mac for trusted App Intents and Shortcuts.
+4. **Start Tasking:** Type a goal (e.g., *"Message Sarah the summary of my last meeting"*) and watch the reasoning loop build a plan.
+
+---
+
+## 📝 Technical Whitepaper
+
+For a deep dive into our actor-isolated runtime, debounced persistence logic, and NPU-affinity scheduling, see the `docs/WHITEPAPER.md`.
+
+---
+
+**Sovereignty isn't just a feature; it's the architecture.** Welcome to the workshop. 🦡
