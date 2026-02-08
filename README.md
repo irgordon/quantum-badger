@@ -4,7 +4,8 @@
 <img src="logo.png" alt="Quantum Badger Logo" width="250" />
 </p>
 
-**Quantum Badger** is a local‑first, privacy‑obsessed assistant for macOS that works quietly in the background and keeps your data where it belongs—on your Mac. It handles the busywork, remembers what matters, and helps you stay organized without ever trading away your privacy or control.
+**Quantum Badger**  is a local‑first, privacy‑obsessed assistant for macOS that works quietly in the background and keeps your data where it belongs—on your Mac. It handles the busywork, remembers what matters, and helps you stay organized without ever trading away your privacy or control.
+
 ---
 
 ## 🏗️ Architecture: The Sovereign Assembly
