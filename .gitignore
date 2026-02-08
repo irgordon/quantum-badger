@@ -1,62 +1,55 @@
-# Xcode
-#
-# gitignore contributors: remember to update Global/Xcode.gitignore, Objective-C.gitignore & Swift.gitignore
+# ====================================================================
+# Quantum Badger: Sovereign Architecture .gitignore
+# Optimized for Xcode 26.3, MLX, and Local Swift Packages
+# ====================================================================
 
-## User settings
+# --- Xcode & macOS System Files ---
+.DS_Store
+*.swp
+*.lock
+profile
+DerivedData/
+.lsbrain/
+
+# --- Xcode User-Specific Files ---
+# These contain local paths and window positions that break CI/CD
 xcuserdata/
+*.xcuserdatad
+*.xcuserstate
+project.xcworkspace/contents.xcworkspacedata
+project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
 
-## Obj-C/Swift specific
-*.hmap
-
-## App packaging
-*.ipa
-*.dSYM.zip
-*.dSYM
-
-## Playgrounds
-timeline.xctimeline
-playground.xcworkspace
-
-# Swift Package Manager
-#
-# Add this line if you want to avoid checking in source code from Swift Package Manager dependencies.
-# Packages/
-# Package.pins
-# Package.resolved
-# *.xcodeproj
-#
-# Xcode automatically generates this directory with a .xcworkspacedata file and xcuserdata
-# hence it is not needed unless you have added a package configuration file to your project
-# .swiftpm
-
+# --- Swift Package Manager (SPM) ---
+# Ignore the local build cache but KEEP the manifest
+.swiftpm/
 .build/
+Package.resolved
 
-# CocoaPods
-#
-# We recommend against adding the Pods directory to your .gitignore. However
-# you should judge for yourself, the pros and cons are mentioned at:
-# https://guides.cocoapods.org/using/using-cocoapods.html#should-i-check-the-pods-directory-into-source-control
-#
-# Pods/
-#
-# Add this line if you want to avoid checking in source code from the Xcode workspace
-# *.xcworkspace
+# --- MLX & AI Specifics ---
+# Do not commit raw weights or downloaded models
+*.gguf
+*.safetensors
+*.bin
+*.mlx
+**/Models/*.weights
+**/Resources/ModelCache/
 
-# Carthage
-#
-# Add this line if you want to avoid checking in source code from Carthage dependencies.
-# Carthage/Checkouts
+# --- Security & Credentials ---
+# Never commit your development entitlements or local keys
+*.entitlements
+*.p12
+*.provisionprofile
+*.apiKey
+config.json
 
-Carthage/Build/
+# --- Build Artifacts ---
+*.framework
+*.zip
+*.tar.gz
+*.pkg
+*.app
+/build/
 
-# fastlane
-#
-# It is recommended to not store the screenshots in the git repo.
-# Instead, use fastlane to re-generate the screenshots whenever they are needed.
-# For more information about the recommended setup visit:
-# https://docs.fastlane.tools/best-practices/source-control/#source-control
-
-fastlane/report.xml
-fastlane/Preview.html
-fastlane/screenshots/**/*.png
-fastlane/test_output
+# --- XPC Specifics ---
+# Ignore temporary build headers for XPC services
+**/Generated/
