@@ -1679,24 +1679,25 @@ RAM Reservation,Dynamic (Model-dependent),Hard Zero (Inference offloaded)
 Intent Analysis,Cloud Mini (Haiku),Cloud Mini (Haiku)
 Local Sentinel,Monitoring (Idle Purge),Aggressive (Immediate Cache Flush)
 
-###Local Models:
+### Local Models
 
-Class,Model Size,RAM Footprint (Q4),Ideal Mac
-Mini,< 1B,< 1GB,Every Apple Device
-Small,3B - 4B,2GB - 3GB,MacBook Air (8GB)
-Normal,7B - 14B,5GB - 9GB,MacBook Pro (16GB+)
-Medium,32B - 47B,18GB - 28GB,M-Max Series (36GB+)
-Heavy,70B - 671B,40GB - 400GB+,Mac Studio (128GB+)
+| Class | Model size   | RAM footprint (Q4) | Ideal Mac                |
+|-------|--------------|--------------------|--------------------------|
+| Small | < 1B         | < 1GB              | Every Apple Device       |
+| Normal| 3B - 4B      | 2GB - 3GB          | MacBook Air (8GB)        |
+| Medium| 7B - 14B     | 5GB - 9GB          | MacBook Pro (16GB+)      |
+| Heavy | 32B - 47B    | 18GB - 28GB        | M-Max Series (36GB+)     |
+|       | 70B - 671B   | 40GB - 400GB+      | Mac Studio (128GB+)      |
 
+### Cloud Models
 
-###Cloud Models:
-
-Class,2026 Model Example,Key Strength,Use in Badger
-Mini,Claude 4.5 Haiku,Instant Latency,Intent Routing / SDA
-Small,GPT-5 Mini,Cost Efficiency,Daily Chat / Summary
-Normal,Claude 4.5 Sonnet,Coding Coherence,Multi-package Refactor
-Medium,OpenAI o3,Zero-Hallucination,Concurrency Audits
-Heavy,GPT-5.2 Pro,Raw Intelligence,Autonomous Feature Builds
+| Class | 2026 model example | Key strength        | Use in Badger Mini           |
+|-------|--------------------|---------------------|------------------------------|
+| Small | Claude 4.5 Haiku   | Instant latency     | Intent routing / SDA         |
+| Normal| GPT-5 Mini         | Cost efficiency     | Daily chat / summary         |
+| Medium| Claude 4.5 Sonnet  | Coding coherence    | Multi-package refactor       |
+| Heavy | OpenAI o3          | Zero-hallucination  | Concurrency audits           |
+|       | GPT-5.2 Pro        | Raw intelligence    | Autonomous feature builds    |
 
 ---
 
