@@ -1673,11 +1673,12 @@ The ShadowRouter is the intelligent "middleman" that ensures Quantum Badger rema
 
 However, in "Safe Mode", the ShadowRouter acts as a strict Zero-Footprint Controller. It bypasses the hardware-check entirely and routes all reasoning tasks to Private Cloud Compute (PCC), ensuring that 0% of your Mac's NPU or Unified Memory is consumed by inference. This prevents "Swap Death" and thermal throttling during intensive tasks like 4K video rendering or large Xcode compiles, maintaining 100% system responsiveness for your primary apps.
 
-Feature,Normal Operation,Safe Mode (Stability Priority)
-Primary Compute,Hybrid (Local + Cloud),100% Cloud (PCC/API)
-RAM Reservation,Dynamic (Model-dependent),Hard Zero (Inference offloaded)
-Intent Analysis,Cloud Mini (Haiku),Cloud Mini (Haiku)
-Local Sentinel,Monitoring (Idle Purge),Aggressive (Immediate Cache Flush)
+| Feature           | Normal operation            | Safe mode (stability priority)      |
+|-------------------|-----------------------------|--------------------------------------|
+| Primary compute   | Hybrid (Local + Cloud)      | 100% Cloud (PCC/API)                 |
+| RAM reservation   | Dynamic (Model‑dependent)   | Hard zero (Inference offloaded)      |
+| Intent analysis   | Cloud Mini (Haiku)          | Cloud Mini (Haiku)                   |
+| Local sentinel    | Monitoring (Idle purge)     | Aggressive (Immediate cache flush)   |
 
 ### Local Models
 
