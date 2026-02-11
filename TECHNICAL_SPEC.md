@@ -1682,13 +1682,14 @@ However, in "Safe Mode", the ShadowRouter acts as a strict Zero-Footprint Contro
 
 ### Local Models
 
-| Class | Model size   | RAM footprint (Q4) | Ideal Mac                |
-|-------|--------------|--------------------|--------------------------|
-| Small | < 1B         | < 1GB              | Every Apple Device       |
-| Normal| 3B - 4B      | 2GB - 3GB          | MacBook Air (8GB)        |
-| Medium| 7B - 14B     | 5GB - 9GB          | MacBook Pro (16GB+)      |
-| Heavy | 32B - 47B    | 18GB - 28GB        | M-Max Series (36GB+)     |
-|       | 70B - 671B   | 40GB - 400GB+      | Mac Studio (128GB+)      |
+| Class   | Model size     | RAM footprint (Q4) | Ideal Mac                | Example HF Models                                                   |
+|---------|-----------------|--------------------|---------------------------|--------------------------------------------------------------------|
+| Small   | < 1B            | < 1GB              | Every Apple Device        | Gemma 3 1B, **Qwen2.5‑0.5B**                                       |
+| Normal  | 3B–4B           | 2GB–3GB            | MacBook Air (8GB)         | Gemma 3 4B, Llama 3.2 3B, **Qwen2.5‑3B**, **Qwen3‑3B**             |
+| Medium  | 7B–14B          | 5GB–9GB            | MacBook Pro (16GB+)       | Llama 3 8B, Gemma 2 9B, Gemma 3 12B, Jais‑13B, **Qwen3‑7B** |
+| Heavy   | 32B–47B         | 18GB–28GB          | M‑Max Series (36GB+)      | Gemma 2 27B, Mixtral 8×7B, **Qwen2.5‑32B**, **Qwen3‑32B**          |
+| Ultra   | 70B–671B        | 40GB–400GB+        | Mac Studio (128GB+)       | Llama 3 70B, Llama 2 70B, **Qwen2.5‑72B**, **Qwen3‑72B**           |
+
 
 ### Cloud Models
 
