@@ -43,6 +43,27 @@ public struct SecureEnclaveKey: @unchecked Sendable {
     }
 }
 
+// MARK: - CoreFoundation Type Bridge
+
+public protocol CoreFoundationTypeBridge {
+    associatedtype Value: AnyObject
+    static var typeID: CFTypeID { get }
+}
+
+public enum SecKeyTypeBridge: CoreFoundationTypeBridge {
+    public typealias Value = SecKey
+    public static var typeID: CFTypeID { SecKeyGetTypeID() }
+}
+
+public extension AnyObject {
+    func bridgedCFType<T: CoreFoundationTypeBridge>(_ bridgeType: T.Type) -> T.Value? {
+        guard CFGetTypeID(self) == bridgeType.typeID else {
+            return nil
+        }
+        return unsafeDowncast(self, to: T.Value.self)
+    }
+}
+
 // MARK: - Key Manager
 
 /// Actor responsible for managing cryptographic keys and API tokens using the Secure Enclave
@@ -274,13 +295,10 @@ public actor KeyManager {
             throw KeyManagerError.retrievalFailed(status)
         }
         
-        // AUDIT FIX: Handle CoreFoundation type safely
-        // SecKey is a CFTypeRef; we verify the type by checking the result is not nil
-        guard let cfResult = result else {
+        guard let cfResult = result,
+              let privateKey = cfResult.bridgedCFType(SecKeyTypeBridge.self) else {
             throw KeyManagerError.invalidData
         }
-        // CoreFoundation bridging requires explicit unsafeBitCast for type safety
-        let privateKey = unsafeBitCast(cfResult, to: SecKey.self)
         
         guard let publicKey = SecKeyCopyPublicKey(privateKey) else {
             throw KeyManagerError.invalidData
