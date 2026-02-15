@@ -19,3 +19,8 @@
 - Rule: Every guarded function logs start/end hashes, duration, memory snapshot, and SLA compliance.
 - Risk removed: Missing chain-linked records for function-level SLA compliance.
 - Follow-up: Add audit verification tests for `FunctionExecution` records.
+
+## 5. Second Pass Coverage
+- Rule: Apply one SLA guard entrypoint per service boundary and keep existing APIs backward compatible.
+- Risk removed: Inconsistent runtime enforcement across indexing, cloud inference, and web fetch paths.
+- Follow-up: Add SLA wrappers for streaming APIs where backpressure/timeout semantics are stream-native.

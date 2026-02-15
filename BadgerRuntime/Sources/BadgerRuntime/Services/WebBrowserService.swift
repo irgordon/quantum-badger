@@ -115,6 +115,7 @@ public actor WebBrowserService {
     private let inputSanitizer: InputSanitizer
     private let privacyFilter: PrivacyEgressFilter
     private let auditService: AuditLogService
+    private let clock: FunctionClock
     
     private var activeTasks: [UUID: Task<FetchedContent, Error>] = [:]
     private var rateLimitStore: [String: Date] = [:]
@@ -123,12 +124,14 @@ public actor WebBrowserService {
         securityPolicy: BrowserSecurityPolicy = .default,
         inputSanitizer: InputSanitizer = InputSanitizer(),
         privacyFilter: PrivacyEgressFilter = PrivacyEgressFilter(),
-        auditService: AuditLogService = AuditLogService()
+        auditService: AuditLogService = AuditLogService(),
+        clock: FunctionClock = SystemFunctionClock()
     ) {
         self.securityPolicy = securityPolicy
         self.inputSanitizer = inputSanitizer
         self.privacyFilter = privacyFilter
         self.auditService = auditService
+        self.clock = clock
         
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = securityPolicy.timeout
@@ -146,6 +149,49 @@ public actor WebBrowserService {
     public func fetchContent(
         from urlString: String,
         extractSummary: Bool = true
+    ) async throws -> FetchedContent {
+        let result = await fetchContentWithSLA(from: urlString, extractSummary: extractSummary)
+        switch result {
+        case .success(let value):
+            return value
+        case .failure(let error):
+            throw mapFunctionError(error)
+        }
+    }
+    
+    public func fetchContentWithSLA(
+        from urlString: String,
+        extractSummary: Bool = true,
+        sla: FunctionSLA = FunctionSLA(
+            maxLatencyMs: 20_000,
+            maxMemoryMb: 512,
+            deterministic: true,
+            timeoutSeconds: 20,
+            version: "v1"
+        )
+    ) async -> Result<FetchedContent, FunctionError> {
+        guard !urlString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .failure(.invalidInput("URL cannot be empty"))
+        }
+        
+        return await SLARuntimeGuard.run(
+            functionName: "WebBrowserService.fetchContentWithSLA",
+            inputMaterial: "\(urlString)#\(extractSummary)",
+            sla: sla,
+            auditService: auditService,
+            clock: clock,
+            operation: {
+                try await self.fetchContentCore(from: urlString, extractSummary: extractSummary)
+            },
+            outputMaterial: { result in
+                "\(result.url.absoluteString)#\(result.contentSize)#\(result.estimatedTokenCount)"
+            }
+        )
+    }
+    
+    private func fetchContentCore(
+        from urlString: String,
+        extractSummary: Bool
     ) async throws -> FetchedContent {
         guard let url = URL(string: urlString),
               url.scheme?.hasPrefix("http") == true else {
@@ -201,6 +247,7 @@ public actor WebBrowserService {
                 textContent: filteredContent,
                 summary: summary,
                 metadata: metadata,
+                fetchDate: clock.now(),
                 contentSize: data.count
             )
         }
@@ -240,7 +287,7 @@ public actor WebBrowserService {
     }
     
     private func checkRateLimit(for host: String) throws {
-        let now = Date()
+        let now = clock.now()
         if let lastRequest = rateLimitStore[host] {
             if now.timeIntervalSince(lastRequest) < 1.0 {
                 throw WebBrowserError.rateLimited
@@ -336,6 +383,23 @@ public actor WebBrowserService {
     
     private func removeTask(_ id: UUID) {
         activeTasks.removeValue(forKey: id)
+    }
+    
+    private func mapFunctionError(_ error: FunctionError) -> WebBrowserError {
+        switch error {
+        case .invalidInput:
+            return .invalidURL
+        case .timeoutExceeded:
+            return .fetchTimeout
+        case .cancellationRequested:
+            return .fetchTimeout
+        case .memoryBudgetExceeded:
+            return .contentTooLarge
+        case .deterministicViolation(let message):
+            return .securityBlocked(message)
+        case .executionFailed(let message):
+            return .networkError(NSError(domain: message, code: -1))
+        }
     }
 }
 

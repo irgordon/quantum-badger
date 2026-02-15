@@ -110,6 +110,8 @@ public actor SearchIndexer {
     
     private let index: CSSearchableIndex
     private let maxResults = 100
+    private let auditService: AuditLogService
+    private let clock: FunctionClock
     
     // In-memory cache for recently indexed items
     private var recentItems: [IndexedItem] = []
@@ -117,8 +119,14 @@ public actor SearchIndexer {
     
     // MARK: - Initialization
     
-    public init(index: CSSearchableIndex? = nil) {
+    public init(
+        index: CSSearchableIndex? = nil,
+        auditService: AuditLogService = AuditLogService(),
+        clock: FunctionClock = SystemFunctionClock()
+    ) {
         self.index = index ?? CSSearchableIndex.default()
+        self.auditService = auditService
+        self.clock = clock
     }
     
     // MARK: - Indexing
@@ -133,8 +141,29 @@ public actor SearchIndexer {
         response: String,
         context: ExecutionContext
     ) async {
-        let category = Self.categorizeInteraction(query: query, response: response)
+        _ = await indexInteractionWithSLA(query: query, response: response, context: context)
+    }
+    
+    public func indexInteractionWithSLA(
+        query: String,
+        response: String,
+        context: ExecutionContext,
+        sla: FunctionSLA = FunctionSLA(
+            maxLatencyMs: 1_000,
+            maxMemoryMb: 256,
+            deterministic: true,
+            timeoutSeconds: 2,
+            version: "v1"
+        )
+    ) async -> Result<Void, FunctionError> {
+        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .failure(.invalidInput("Query cannot be empty"))
+        }
+        guard !response.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .failure(.invalidInput("Response cannot be empty"))
+        }
         
+        let category = Self.categorizeInteraction(query: query, response: response)
         let item = IndexedItem(
             query: query,
             response: response,
@@ -148,32 +177,101 @@ public actor SearchIndexer {
             ]
         )
         
-        // Add to in-memory cache
-        addToRecentItems(item)
-        
-        // Index to CoreSpotlight
-        do {
-            try await indexToSpotlight(item: item)
-        } catch {
-            print("Failed to index to Spotlight: \(error)")
-        }
+        return await SLARuntimeGuard.run(
+            functionName: "SearchIndexer.indexInteractionWithSLA",
+            inputMaterial: "\(query)#\(response)#\(context.source.rawValue)",
+            sla: sla,
+            auditService: auditService,
+            clock: clock,
+            operation: {
+                try await self.indexItemCore(item)
+            },
+            outputMaterial: { _ in "indexed" }
+        )
     }
     
     /// Index a complete interaction item
     public func indexItem(_ item: IndexedItem) async throws {
-        addToRecentItems(item)
-        try await indexToSpotlight(item: item)
+        let result = await indexItemWithSLA(item)
+        switch result {
+        case .success:
+            return
+        case .failure(let error):
+            throw mapFunctionError(error)
+        }
+    }
+    
+    public func indexItemWithSLA(
+        _ item: IndexedItem,
+        sla: FunctionSLA = FunctionSLA(
+            maxLatencyMs: 1_000,
+            maxMemoryMb: 256,
+            deterministic: true,
+            timeoutSeconds: 2,
+            version: "v1"
+        )
+    ) async -> Result<Void, FunctionError> {
+        await SLARuntimeGuard.run(
+            functionName: "SearchIndexer.indexItemWithSLA",
+            inputMaterial: "\(item.id)#\(item.query)#\(item.source.rawValue)",
+            sla: sla,
+            auditService: auditService,
+            clock: clock,
+            operation: {
+                try await self.indexItemCore(item)
+            },
+            outputMaterial: { _ in "indexed" }
+        )
     }
     
     /// Batch index multiple items
     public func indexItems(_ items: [IndexedItem]) async throws {
+        let result = await indexItemsWithSLA(items)
+        switch result {
+        case .success:
+            return
+        case .failure(let error):
+            throw mapFunctionError(error)
+        }
+    }
+    
+    public func indexItemsWithSLA(
+        _ items: [IndexedItem],
+        sla: FunctionSLA = FunctionSLA(
+            maxLatencyMs: 2_000,
+            maxMemoryMb: 256,
+            deterministic: true,
+            timeoutSeconds: 3,
+            version: "v1"
+        )
+    ) async -> Result<Void, FunctionError> {
+        guard !items.isEmpty else {
+            return .failure(.invalidInput("Items cannot be empty"))
+        }
+        
+        return await SLARuntimeGuard.run(
+            functionName: "SearchIndexer.indexItemsWithSLA",
+            inputMaterial: items.map(\.id).joined(separator: ","),
+            sla: sla,
+            auditService: auditService,
+            clock: clock,
+            operation: {
+                try await self.indexItemsCore(items)
+            },
+            outputMaterial: { _ in "indexed-batch" }
+        )
+    }
+    
+    private func indexItemCore(_ item: IndexedItem) async throws {
+        addToRecentItems(item)
+        try await indexToSpotlight(item: item)
+    }
+    
+    private func indexItemsCore(_ items: [IndexedItem]) async throws {
         for item in items {
             addToRecentItems(item)
         }
-        
-        // Use nonisolated helper
         let searchableItems = items.map { Self.createSearchableItem(from: $0) }
-        
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             index.indexSearchableItems(searchableItems) { error in
                 if let error = error {
@@ -196,20 +294,58 @@ public actor SearchIndexer {
         query: String,
         limit: Int = 20
     ) async throws -> [SearchResult] {
+        let result = await searchWithSLA(query: query, limit: limit)
+        switch result {
+        case .success(let results):
+            return results
+        case .failure(let error):
+            throw mapFunctionError(error)
+        }
+    }
+    
+    public func searchWithSLA(
+        query: String,
+        limit: Int = 20,
+        sla: FunctionSLA = FunctionSLA(
+            maxLatencyMs: 1_000,
+            maxMemoryMb: 256,
+            deterministic: true,
+            timeoutSeconds: 2,
+            version: "v1"
+        )
+    ) async -> Result<[SearchResult], FunctionError> {
+        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .failure(.invalidInput("Query cannot be empty"))
+        }
+        guard limit > 0 && limit <= maxResults else {
+            return .failure(.invalidInput("Limit must be between 1 and \(maxResults)"))
+        }
+        
+        return await SLARuntimeGuard.run(
+            functionName: "SearchIndexer.searchWithSLA",
+            inputMaterial: "\(query)#\(limit)",
+            sla: sla,
+            auditService: auditService,
+            clock: clock,
+            operation: {
+                try await self.searchCore(query: query, limit: limit)
+            },
+            outputMaterial: { results in
+                results.map(\.id).joined(separator: ",")
+            }
+        )
+    }
+    
+    private func searchCore(query: String, limit: Int) async throws -> [SearchResult] {
         let queryString = Self.buildSearchQuery(query: query)
         let queryContext = CSSearchQueryContext()
         queryContext.fetchAttributes = ["title", "contentDescription", "keywords"]
         let searchQuery = CSSearchQuery(queryString: queryString, queryContext: queryContext)
-        
-        // Thread-safe accumulator
         let accumulator = ResultAccumulator(limit: limit)
         
         return try await withCheckedThrowingContinuation { continuation in
-            
-            // Handler runs on background thread
             searchQuery.foundItemsHandler = { items in
                 for item in items {
-                    // Call nonisolated helper
                     if let result = Self.parseSearchableItem(item) {
                         accumulator.add(result)
                         if accumulator.count >= limit {
@@ -263,10 +399,142 @@ public actor SearchIndexer {
     
     /// Remove an item from the index
     public func removeItem(id: String) async throws {
-        // Remove from cache
-        recentItems.removeAll { $0.id == id }
+        let result = await removeItemWithSLA(id: id)
+        switch result {
+        case .success:
+            return
+        case .failure(let error):
+            throw mapFunctionError(error)
+        }
+    }
+    
+    public func removeItemWithSLA(
+        id: String,
+        sla: FunctionSLA = FunctionSLA(
+            maxLatencyMs: 1_000,
+            maxMemoryMb: 256,
+            deterministic: true,
+            timeoutSeconds: 2,
+            version: "v1"
+        )
+    ) async -> Result<Void, FunctionError> {
+        guard !id.isEmpty else {
+            return .failure(.invalidInput("ID cannot be empty"))
+        }
         
-        // Remove from Spotlight
+        return await SLARuntimeGuard.run(
+            functionName: "SearchIndexer.removeItemWithSLA",
+            inputMaterial: id,
+            sla: sla,
+            auditService: auditService,
+            clock: clock,
+            operation: {
+                try await self.removeItemCore(id: id)
+            },
+            outputMaterial: { _ in "deleted-item" }
+        )
+    }
+    
+    /// Remove all items for a specific domain
+    public func removeAllItems() async throws {
+        let result = await removeAllItemsWithSLA()
+        switch result {
+        case .success:
+            return
+        case .failure(let error):
+            throw mapFunctionError(error)
+        }
+    }
+    
+    public func removeAllItemsWithSLA(
+        sla: FunctionSLA = FunctionSLA(
+            maxLatencyMs: 1_500,
+            maxMemoryMb: 256,
+            deterministic: true,
+            timeoutSeconds: 3,
+            version: "v1"
+        )
+    ) async -> Result<Void, FunctionError> {
+        await SLARuntimeGuard.run(
+            functionName: "SearchIndexer.removeAllItemsWithSLA",
+            inputMaterial: Self.domainIdentifier,
+            sla: sla,
+            auditService: auditService,
+            clock: clock,
+            operation: {
+                try await self.removeAllItemsCore()
+            },
+            outputMaterial: { _ in "deleted-all" }
+        )
+    }
+    
+    /// Remove old items (older than specified interval)
+    public func removeOldItems(olderThan interval: TimeInterval) async throws {
+        let result = await removeOldItemsWithSLA(olderThan: interval)
+        switch result {
+        case .success:
+            return
+        case .failure(let error):
+            throw mapFunctionError(error)
+        }
+    }
+    
+    public func removeOldItemsWithSLA(
+        olderThan interval: TimeInterval,
+        sla: FunctionSLA = FunctionSLA(
+            maxLatencyMs: 1_500,
+            maxMemoryMb: 256,
+            deterministic: true,
+            timeoutSeconds: 3,
+            version: "v1"
+        )
+    ) async -> Result<Void, FunctionError> {
+        guard interval > 0 else {
+            return .failure(.invalidInput("Interval must be greater than zero"))
+        }
+        
+        return await SLARuntimeGuard.run(
+            functionName: "SearchIndexer.removeOldItemsWithSLA",
+            inputMaterial: String(interval),
+            sla: sla,
+            auditService: auditService,
+            clock: clock,
+            operation: {
+                try await self.removeOldItemsCore(interval: interval)
+            },
+            outputMaterial: { _ in "deleted-old" }
+        )
+    }
+    
+    // MARK: - Statistics
+    
+    /// Get index statistics
+    public func getStatistics() async -> [String: Int] {
+        [
+            "recentItems": recentItems.count,
+            "maxRecentItems": maxRecentItems
+        ]
+    }
+    
+    private func mapFunctionError(_ error: FunctionError) -> SearchIndexerError {
+        switch error {
+        case .invalidInput(let message):
+            return .indexingFailed(message)
+        case .timeoutExceeded(let seconds):
+            return .indexingFailed("Operation timed out after \(seconds)s")
+        case .cancellationRequested:
+            return .indexingFailed("Operation cancelled")
+        case .memoryBudgetExceeded(let limit, let observed):
+            return .indexingFailed("Memory budget exceeded \(observed)MB > \(limit)MB")
+        case .deterministicViolation(let message):
+            return .indexingFailed(message)
+        case .executionFailed(let message):
+            return .indexingFailed(message)
+        }
+    }
+    
+    private func removeItemCore(id: String) async throws {
+        recentItems.removeAll { $0.id == id }
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             index.deleteSearchableItems(withIdentifiers: [id]) { error in
                 if let error = error {
@@ -278,10 +546,8 @@ public actor SearchIndexer {
         }
     }
     
-    /// Remove all items for a specific domain
-    public func removeAllItems() async throws {
+    private func removeAllItemsCore() async throws {
         recentItems.removeAll()
-        
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             index.deleteSearchableItems(withDomainIdentifiers: [Self.domainIdentifier]) { error in
                 if let error = error {
@@ -293,37 +559,23 @@ public actor SearchIndexer {
         }
     }
     
-    /// Remove old items (older than specified interval)
-    public func removeOldItems(olderThan interval: TimeInterval) async throws {
-        let cutoffDate = Date().addingTimeInterval(-interval)
-        
-        // Remove from cache
+    private func removeOldItemsCore(interval: TimeInterval) async throws {
+        let cutoffDate = clock.now().addingTimeInterval(-interval)
         let itemsToRemove = recentItems.filter { $0.timestamp < cutoffDate }
         recentItems.removeAll { $0.timestamp < cutoffDate }
-        
-        // Remove from Spotlight
         let idsToRemove = itemsToRemove.map { $0.id }
-        if !idsToRemove.isEmpty {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                index.deleteSearchableItems(withIdentifiers: idsToRemove) { error in
-                    if let error = error {
-                        continuation.resume(throwing: SearchIndexerError.deletionFailed(error.localizedDescription))
-                    } else {
-                        continuation.resume()
-                    }
+        guard !idsToRemove.isEmpty else {
+            return
+        }
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            index.deleteSearchableItems(withIdentifiers: idsToRemove) { error in
+                if let error = error {
+                    continuation.resume(throwing: SearchIndexerError.deletionFailed(error.localizedDescription))
+                } else {
+                    continuation.resume()
                 }
             }
         }
-    }
-    
-    // MARK: - Statistics
-    
-    /// Get index statistics
-    public func getStatistics() async -> [String: Int] {
-        [
-            "recentItems": recentItems.count,
-            "maxRecentItems": maxRecentItems
-        ]
     }
     
     // MARK: - Private Helpers

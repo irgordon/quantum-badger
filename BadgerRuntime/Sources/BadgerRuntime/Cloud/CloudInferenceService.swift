@@ -202,6 +202,8 @@ public actor CloudInferenceService {
     
     let keyManager: KeyManager
     let urlSession: URLSession
+    let auditService: AuditLogService
+    let clock: FunctionClock
     private var activeTasks: [UUID: Task<Data, Error>] = [:]
     
     /// Default request timeout
@@ -217,9 +219,13 @@ public actor CloudInferenceService {
     // MARK: - Initialization
     
     public init(
-        keyManager: KeyManager = KeyManager()
+        keyManager: KeyManager = KeyManager(),
+        auditService: AuditLogService = AuditLogService(),
+        clock: FunctionClock = SystemFunctionClock()
     ) {
         self.keyManager = keyManager
+        self.auditService = auditService
+        self.clock = clock
         
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = defaultTimeout
@@ -310,8 +316,32 @@ public actor CloudInferenceService {
         prompt: String,
         configuration: CloudRequestConfiguration
     ) async throws -> CloudInferenceResult {
+        let result = await generateWithSLA(prompt: prompt, configuration: configuration)
+        switch result {
+        case .success(let value):
+            return value
+        case .failure(let error):
+            throw mapFunctionError(error)
+        }
+    }
+    
+    public func generateWithSLA(
+        prompt: String,
+        configuration: CloudRequestConfiguration,
+        sla: FunctionSLA = FunctionSLA(
+            maxLatencyMs: 30_000,
+            maxMemoryMb: 512,
+            deterministic: false,
+            timeoutSeconds: 30,
+            version: "v1"
+        )
+    ) async -> Result<CloudInferenceResult, FunctionError> {
+        guard !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .failure(.invalidInput("Prompt cannot be empty"))
+        }
+        
         let message = CloudMessage(role: .user, content: prompt)
-        return try await generate(messages: [message], configuration: configuration)
+        return await generateWithSLA(messages: [message], configuration: configuration, sla: sla)
     }
     
     /// Generate text with conversation history
@@ -320,6 +350,53 @@ public actor CloudInferenceService {
     ///   - configuration: Request configuration
     /// - Returns: Cloud inference result
     public func generate(
+        messages: [CloudMessage],
+        configuration: CloudRequestConfiguration
+    ) async throws -> CloudInferenceResult {
+        let result = await generateWithSLA(messages: messages, configuration: configuration)
+        switch result {
+        case .success(let value):
+            return value
+        case .failure(let error):
+            throw mapFunctionError(error)
+        }
+    }
+    
+    public func generateWithSLA(
+        messages: [CloudMessage],
+        configuration: CloudRequestConfiguration,
+        sla: FunctionSLA = FunctionSLA(
+            maxLatencyMs: 30_000,
+            maxMemoryMb: 512,
+            deterministic: false,
+            timeoutSeconds: 30,
+            version: "v1"
+        )
+    ) async -> Result<CloudInferenceResult, FunctionError> {
+        guard !messages.isEmpty else {
+            return .failure(.invalidInput("Messages cannot be empty"))
+        }
+        
+        if sla.deterministic && configuration.temperature > 0 {
+            return .failure(.deterministicViolation("Deterministic SLA requires temperature == 0"))
+        }
+        
+        return await SLARuntimeGuard.run(
+            functionName: "CloudInferenceService.generateWithSLA",
+            inputMaterial: "\(configuration.provider.rawValue)#\(configuration.model)#\(messages.count)",
+            sla: sla,
+            auditService: auditService,
+            clock: clock,
+            operation: {
+                try await self.generateMessagesCore(messages: messages, configuration: configuration)
+            },
+            outputMaterial: { result in
+                "\(result.provider.rawValue)#\(result.model)#\(result.totalTokens)#\(result.finishReason ?? "none")"
+            }
+        )
+    }
+    
+    private func generateMessagesCore(
         messages: [CloudMessage],
         configuration: CloudRequestConfiguration
     ) async throws -> CloudInferenceResult {
@@ -389,6 +466,23 @@ public actor CloudInferenceService {
             throw error
         } catch {
             throw CloudInferenceError.networkError(error)
+        }
+    }
+    
+    private func mapFunctionError(_ error: FunctionError) -> CloudInferenceError {
+        switch error {
+        case .invalidInput:
+            return .invalidRequest
+        case .timeoutExceeded:
+            return .requestTimeout
+        case .cancellationRequested:
+            return .cancelled
+        case .memoryBudgetExceeded:
+            return .serviceUnavailable
+        case .deterministicViolation(let message):
+            return .apiError(400, message)
+        case .executionFailed(let message):
+            return .apiError(500, message)
         }
     }
     
