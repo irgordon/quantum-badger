@@ -37,12 +37,13 @@ public struct ExecutionContext: Sendable {
     public init(
         source: CommandSource,
         originalInput: String,
+        timestamp: Date = Date(),
         userID: String? = nil,
         conversationID: String? = nil
     ) {
         self.source = source
         self.originalInput = originalInput
-        self.timestamp = Date()
+        self.timestamp = timestamp
         self.userID = userID
         self.conversationID = conversationID
     }
@@ -105,10 +106,15 @@ public struct FormattedOutput: Sendable {
     }
 }
 
+private struct SanitizedCommand: Sendable {
+    let command: String
+    let wasSanitized: Bool
+    let violationCount: Int
+}
+
 // MARK: - App Coordinator
 
 /// Central coordinator for executing commands from various sources
-@MainActor
 public final class AppCoordinator: ObservableObject, Sendable {
     
     // MARK: - Properties
@@ -118,6 +124,7 @@ public final class AppCoordinator: ObservableObject, Sendable {
     private let searchIndexer: SearchIndexer
     private let auditService: AuditLogService
     private let inputSanitizer: InputSanitizer
+    private let clock: FunctionClock
     
     public static let shared = AppCoordinator()
     
@@ -127,105 +134,65 @@ public final class AppCoordinator: ObservableObject, Sendable {
         executionManager: HybridExecutionManager? = nil,
         responseFormatter: ResponseFormatter? = nil,
         searchIndexer: SearchIndexer? = nil,
-        auditService: AuditLogService? = nil
+        auditService: AuditLogService? = nil,
+        clock: FunctionClock = SystemFunctionClock()
     ) {
         self.executionManager = executionManager ?? HybridExecutionManager()
         self.responseFormatter = responseFormatter ?? ResponseFormatter()
         self.searchIndexer = searchIndexer ?? SearchIndexer()
         self.auditService = auditService ?? AuditLogService()
         self.inputSanitizer = InputSanitizer()
+        self.clock = clock
     }
     
     // MARK: - Main Execution Entry Point
     
-    /// Execute a command from any source
-    /// - Parameters:
-    ///   - command: The command string to execute
-    ///   - context: Execution context (source, user, etc.)
-    /// - Returns: Execution result with formatted output
+    /// Execute a command from any source using strict SLA enforcement.
+    public func executeWithSLA(
+        command: String,
+        context: ExecutionContext,
+        sla: FunctionSLA = FunctionSLA(
+            maxLatencyMs: 10_000,
+            maxMemoryMb: 512,
+            deterministic: true,
+            timeoutSeconds: 10,
+            version: "v1"
+        )
+    ) async -> Result<CommandExecutionResult, FunctionError> {
+        switch validateCommand(command) {
+        case .success:
+            break
+        case .failure(let error):
+            return .failure(error)
+        }
+        
+        return await SLARuntimeGuard.run(
+            functionName: "AppCoordinator.executeWithSLA",
+            inputMaterial: "\(context.source.rawValue)|\(command)",
+            sla: sla,
+            auditService: auditService,
+            clock: clock,
+            operation: {
+                try await self.executePipeline(command: command, context: context)
+            },
+            outputMaterial: { result in
+                self.hashableOutputMaterial(for: result)
+            }
+        )
+    }
+    
+    /// Execute a command from any source.
     public func execute(
         command: String,
         context: ExecutionContext
     ) async throws -> CommandExecutionResult {
-        let startTime = Date()
-        
-        // Step 1: Log the received command
-        try await auditService.log(
-            type: .remoteCommandReceived,
-            source: context.source.rawValue,
-            details: "Command from \(context.source.rawValue): \(command.prefix(100))..."
-        )
-        
-        // Step 2: Sanitize input (critical security step)
-        let sanitizationResult = inputSanitizer.sanitize(command)
-        let sanitizedCommand = sanitizationResult.sanitized
-        
-        // Check for security violations
-        let criticalViolations = sanitizationResult.violations.filter {
-            $0.severity == .critical || $0.severity == .high
+        let result = await executeWithSLA(command: command, context: context)
+        switch result {
+        case .success(let value):
+            return value
+        case .failure(let error):
+            throw mapFunctionError(error)
         }
-        
-        if !criticalViolations.isEmpty {
-            let violationNames = criticalViolations.map { $0.patternName }.joined(separator: ", ")
-            try await auditService.log(
-                type: .sanitizationTriggered,
-                source: context.source.rawValue,
-                details: "Security violations blocked: \(violationNames)"
-            )
-            throw AppCoordinatorError.securityViolation(
-                "Potentially harmful content detected: \(violationNames)"
-            )
-        }
-        
-        // Step 3: Execute through the hybrid engine
-        let executionResult: HybridExecutionResult
-        do {
-            executionResult = try await executionManager.executeWithFallback(
-                prompt: sanitizedCommand,
-                configuration: defaultConfiguration(for: context)
-            )
-        } catch {
-            throw AppCoordinatorError.executionFailed(error.localizedDescription)
-        }
-        
-        // Step 4: Format the response
-        let formattedOutput = try await responseFormatter.format(
-            content: executionResult.text,
-            source: context.source
-        )
-        
-        // Step 5: Build the result
-        let result = CommandExecutionResult(
-            output: executionResult.text,
-            formattedOutput: formattedOutput,
-            executionTime: Date().timeIntervalSince(startTime),
-            routingDecision: executionResult.decision,
-            wasSanitized: sanitizationResult.wasSanitized,
-            metadata: [
-                "source": context.source.rawValue,
-                "sanitized": String(sanitizationResult.wasSanitized),
-                "violations": String(sanitizationResult.violations.count),
-                "routing": executionResult.decision.isLocal ? "local" : "cloud"
-            ]
-        )
-        
-        // Step 6: Index for search if appropriate
-        if shouldIndex(context: context, result: result) {
-            await searchIndexer.indexInteraction(
-                query: sanitizedCommand,
-                response: executionResult.text,
-                context: context
-            )
-        }
-        
-        // Step 7: Log completion
-        try await auditService.log(
-            type: .shadowRouterDecision,
-            source: context.source.rawValue,
-            details: "Execution completed in \(String(format: "%.2f", result.executionTime))s"
-        )
-        
-        return result
     }
     
     /// Execute from Shortcuts/AppIntent (simplified interface)
@@ -235,7 +202,8 @@ public final class AppCoordinator: ObservableObject, Sendable {
     ) async throws -> CommandExecutionResult {
         let context = ExecutionContext(
             source: source,
-            originalInput: command
+            originalInput: command,
+            timestamp: clock.now()
         )
         return try await execute(command: command, context: context)
     }
@@ -245,23 +213,16 @@ public final class AppCoordinator: ObservableObject, Sendable {
     private func defaultConfiguration(for context: ExecutionContext) -> ExecutionConfiguration {
         switch context.source {
         case .shortcuts, .siri:
-            // Fast response for voice/shortcuts
             return ExecutionConfiguration.fast
-            
         case .imessage, .whatsapp, .telegram, .slack:
-            // Balanced for messaging
             return ExecutionConfiguration(
                 useIntentAnalysis: true,
                 preferredCloudTier: .normal,
                 allowFallback: true
             )
-            
         case .internalApp:
-            // Full features for in-app use
             return ExecutionConfiguration.default
-            
         case .widget:
-            // Fast, no fallback for widgets
             return ExecutionConfiguration(
                 useIntentAnalysis: false,
                 allowFallback: false
@@ -269,24 +230,201 @@ public final class AppCoordinator: ObservableObject, Sendable {
         }
     }
     
-    // MARK: - Helper Methods
+    // MARK: - Pipeline
+    
+    private func executePipeline(
+        command: String,
+        context: ExecutionContext
+    ) async throws -> CommandExecutionResult {
+        let start = clock.now()
+        try await logCommandReceipt(command: command, context: context)
+        let sanitized = try await sanitize(command: command, source: context.source)
+        let execution = try await executeEngine(command: sanitized.command, context: context)
+        let formatted = try await format(output: execution.text, source: context.source)
+        let result = buildResult(
+            execution: execution,
+            formatted: formatted,
+            sanitized: sanitized,
+            context: context,
+            start: start
+        )
+        await indexIfNeeded(context: context, result: result, sanitizedCommand: sanitized.command)
+        try await logCompletion(context: context, duration: result.executionTime)
+        return result
+    }
+    
+    // MARK: - Validation
+    
+    private func validateCommand(_ command: String) -> Result<Void, FunctionError> {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return .failure(.invalidInput("Command cannot be empty"))
+        }
+        if trimmed.count > 20_000 {
+            return .failure(.invalidInput("Command exceeds max length"))
+        }
+        if containsAmbiguousMultiTaskPrompt(trimmed) {
+            return .failure(.invalidInput("Command appears to contain multiple tasks"))
+        }
+        return .success(())
+    }
+    
+    private func containsAmbiguousMultiTaskPrompt(_ command: String) -> Bool {
+        let separators = [" and then ", "\n- ", "\n1.", ";"]
+        return separators.contains { command.localizedCaseInsensitiveContains($0) }
+    }
+    
+    // MARK: - Steps
+    
+    private func logCommandReceipt(
+        command: String,
+        context: ExecutionContext
+    ) async throws {
+        try await auditService.log(
+            type: .remoteCommandReceived,
+            source: context.source.rawValue,
+            details: "Command from \(context.source.rawValue): \(command.prefix(100))..."
+        )
+    }
+    
+    private func sanitize(
+        command: String,
+        source: ExecutionContext.CommandSource
+    ) async throws -> SanitizedCommand {
+        let sanitizationResult = inputSanitizer.sanitize(command)
+        let criticalViolations = sanitizationResult.violations.filter {
+            $0.severity == .critical || $0.severity == .high
+        }
+        if criticalViolations.isEmpty {
+            return SanitizedCommand(
+                command: sanitizationResult.sanitized,
+                wasSanitized: sanitizationResult.wasSanitized,
+                violationCount: sanitizationResult.violations.count
+            )
+        }
+        
+        let names = criticalViolations.map { $0.patternName }.joined(separator: ", ")
+        try await auditService.log(
+            type: .sanitizationTriggered,
+            source: source.rawValue,
+            details: "Security violations blocked: \(names)"
+        )
+        throw AppCoordinatorError.securityViolation("Potentially harmful content detected: \(names)")
+    }
+    
+    private func executeEngine(
+        command: String,
+        context: ExecutionContext
+    ) async throws -> HybridExecutionResult {
+        do {
+            return try await executionManager.executeWithFallback(
+                prompt: command,
+                configuration: defaultConfiguration(for: context)
+            )
+        } catch {
+            throw AppCoordinatorError.executionFailed(error.localizedDescription)
+        }
+    }
+    
+    private func format(
+        output: String,
+        source: ExecutionContext.CommandSource
+    ) async throws -> FormattedOutput? {
+        do {
+            return try await responseFormatter.format(content: output, source: source)
+        } catch {
+            throw AppCoordinatorError.formattingFailed
+        }
+    }
+    
+    private func buildResult(
+        execution: HybridExecutionResult,
+        formatted: FormattedOutput?,
+        sanitized: SanitizedCommand,
+        context: ExecutionContext,
+        start: Date
+    ) -> CommandExecutionResult {
+        CommandExecutionResult(
+            output: execution.text,
+            formattedOutput: formatted,
+            executionTime: clock.now().timeIntervalSince(start),
+            routingDecision: execution.decision,
+            wasSanitized: sanitized.wasSanitized,
+            metadata: [
+                "source": context.source.rawValue,
+                "sanitized": String(sanitized.wasSanitized),
+                "violations": String(sanitized.violationCount),
+                "routing": execution.decision.isLocal ? "local" : "cloud"
+            ]
+        )
+    }
+    
+    private func indexIfNeeded(
+        context: ExecutionContext,
+        result: CommandExecutionResult,
+        sanitizedCommand: String
+    ) async {
+        guard shouldIndex(context: context, result: result) else {
+            return
+        }
+        await searchIndexer.indexInteraction(
+            query: sanitizedCommand,
+            response: result.output,
+            context: context
+        )
+    }
+    
+    private func logCompletion(
+        context: ExecutionContext,
+        duration: TimeInterval
+    ) async throws {
+        try await auditService.log(
+            type: .shadowRouterDecision,
+            source: context.source.rawValue,
+            details: "Execution completed in \(String(format: "%.2f", duration))s"
+        )
+    }
+    
+    private func hashableOutputMaterial(for result: CommandExecutionResult) -> String {
+        let metadata = result.metadata
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }
+            .joined(separator: "|")
+        return [result.output, metadata, String(result.executionTime)].joined(separator: "#")
+    }
+    
+    private func mapFunctionError(_ error: FunctionError) -> AppCoordinatorError {
+        switch error {
+        case .invalidInput:
+            return .invalidInput
+        case .timeoutExceeded(let seconds):
+            return .executionFailed("Execution timed out after \(seconds)s")
+        case .cancellationRequested:
+            return .executionFailed("Execution cancelled")
+        case .memoryBudgetExceeded(let limit, let observed):
+            return .executionFailed("Memory budget exceeded \(observed)MB > \(limit)MB")
+        case .deterministicViolation(let message):
+            return .executionFailed(message)
+        case .executionFailed(let message):
+            return .executionFailed(message)
+        }
+    }
+    
+    // MARK: - Indexing Policy
     
     private func shouldIndex(
         context: ExecutionContext,
         result: CommandExecutionResult
     ) -> Bool {
-        // Don't index if there were security violations
         if result.wasSanitized && result.metadata["violations"] != "0" {
             return false
         }
         
-        // Don't index from certain sources
         switch context.source {
         case .shortcuts, .siri, .internalApp:
             return true
         case .imessage, .whatsapp, .telegram, .slack:
-            // Only index if explicitly enabled for messaging
-            return false // Privacy by default
+            return false
         case .widget:
             return false
         }

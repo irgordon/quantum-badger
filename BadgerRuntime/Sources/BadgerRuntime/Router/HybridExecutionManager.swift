@@ -143,6 +143,7 @@ public actor HybridExecutionManager {
     private let vramMonitor: VRAMMonitor
     private let thermalGuard: ThermalGuard
     private let auditService: AuditLogService
+    private let clock: FunctionClock
     
     private var delegates: [UUID: WeakExecutionDelegate] = [:]
     private var currentPhase: ExecutionPhase = .idle
@@ -155,7 +156,8 @@ public actor HybridExecutionManager {
         cloudService: CloudInferenceService? = nil,
         vramMonitor: VRAMMonitor? = nil,
         thermalGuard: ThermalGuard? = nil,
-        auditService: AuditLogService? = nil
+        auditService: AuditLogService? = nil,
+        clock: FunctionClock = SystemFunctionClock()
     ) {
         let vram = vramMonitor ?? VRAMMonitor()
         let thermal = thermalGuard ?? ThermalGuard()
@@ -174,6 +176,7 @@ public actor HybridExecutionManager {
         self.vramMonitor = vram
         self.thermalGuard = thermal
         self.auditService = auditService ?? AuditLogService()
+        self.clock = clock
     }
     
     // MARK: - Main Execution Flow
@@ -184,100 +187,39 @@ public actor HybridExecutionManager {
         prompt: String,
         configuration: ExecutionConfiguration = .default
     ) async throws -> HybridExecutionResult {
-        let executionStartTime = Date()
-        currentPhase = .sanitizing
-        notifyProgress(phase: .sanitizing, percent: 0.1, message: "Sanitizing input...")
-        
-        // Step 1: PII Redaction (ALWAYS first, before anything else)
-        let sanitizer = InputSanitizer()
-        let sanitizationResult = sanitizer.sanitize(prompt)
-        let sanitizedPrompt = sanitizationResult.sanitized
-        
-        notifyProgress(phase: .sanitizing, percent: 0.2, message: "PII check complete")
-        
-        // Log redaction if needed
-        if sanitizationResult.wasSanitized {
-            try await auditService.log(
-                type: .piiRedaction,
-                source: "HybridExecutionManager",
-                details: "PII redacted: \(sanitizationResult.violations.map { $0.patternName }.joined(separator: ", "))"
-            )
+        let result = await executeWithSLA(prompt: prompt, configuration: configuration)
+        switch result {
+        case .success(let value):
+            return value
+        case .failure(let error):
+            throw mapFunctionError(error)
         }
-        
-        // Step 2 & 3: Routing (includes Intent Analysis if enabled)
-        let routingStartTime = Date()
-        let decision: RouterDecision
-        let intentAnalysis: IntentAnalysisResult?
-        
-        notifyProgress(phase: .routing, percent: 0.3, message: "Determining execution path...")
-        
-        if configuration.forceLocal {
-            // Skip analysis, force local
-            let vramStatus = await vramMonitor.getCurrentStatus()
-            decision = RouterDecision.local(selectModelForVRAM(vramStatus.availableVRAM))
-            intentAnalysis = nil
-        } else if configuration.forceCloud {
-            // Skip analysis, force cloud
-            decision = RouterDecision.cloud(.anthropic, configuration.preferredCloudTier.defaultModel(for: .anthropic))
-            intentAnalysis = nil
-        } else if configuration.useIntentAnalysis {
-            // Full routing with intent analysis
-            notifyProgress(phase: .analyzingIntent, percent: 0.35, message: "Analyzing intent with Cloud Mini...")
-            decision = try await shadowRouter.route(prompt: sanitizedPrompt)
-            // Get intent analysis from the router's work
-            intentAnalysis = nil // Router doesn't expose this directly
-        } else {
-            // Quick routing without intent analysis
-            decision = try await shadowRouter.quickRoute(prompt: sanitizedPrompt)
-            intentAnalysis = nil
-        }
-        
-        let routingTime = Date().timeIntervalSince(routingStartTime)
-        notifyProgress(phase: .routing, percent: 0.4, message: "Routing decision: \(decision.isLocal ? "Local" : "Cloud")")
-        
-        // Step 4: Execution based on routing decision
-        let generationStartTime = Date()
-        let resultText: String
-        
-        switch decision {
-        case .local(let modelClass):
-            resultText = try await executeLocal(
-                prompt: sanitizedPrompt,
-                modelClass: modelClass,
-                configuration: configuration
-            )
-            
-        case .cloud(let provider, let model):
-            resultText = try await executeCloud(
-                prompt: sanitizedPrompt,
-                provider: provider,
-                model: model,
-                configuration: configuration
-            )
-        }
-        
-        let generationTime = Date().timeIntervalSince(generationStartTime)
-        let totalTime = Date().timeIntervalSince(executionStartTime)
-        
-        notifyProgress(phase: .completed, percent: 1.0, message: "Execution complete")
-        
-        let result = HybridExecutionResult(
-            text: resultText,
-            decision: decision,
-            intentAnalysis: intentAnalysis,
-            routingTime: routingTime,
-            generationTime: generationTime,
-            totalTime: totalTime,
-            piiRedacted: sanitizationResult.wasSanitized,
-            metadata: [
-                "originalPromptLength": String(prompt.count),
-                "sanitizedPromptLength": String(sanitizedPrompt.count),
-                "violationsRedacted": String(sanitizationResult.violations.count)
-            ]
+    }
+    
+    public func executeWithSLA(
+        prompt: String,
+        configuration: ExecutionConfiguration = .default,
+        sla: FunctionSLA = FunctionSLA(
+            maxLatencyMs: 12_000,
+            maxMemoryMb: 1024,
+            deterministic: true,
+            timeoutSeconds: 12,
+            version: "v1"
         )
-        
-        notifyCompletion(result)
-        return result
+    ) async -> Result<HybridExecutionResult, FunctionError> {
+        await SLARuntimeGuard.run(
+            functionName: "HybridExecutionManager.executeWithSLA",
+            inputMaterial: "\(prompt)#\(configuration.useIntentAnalysis)#\(configuration.forceLocal)#\(configuration.forceCloud)",
+            sla: sla,
+            auditService: auditService,
+            clock: clock,
+            operation: {
+                try await self.executeCore(prompt: prompt, configuration: configuration)
+            },
+            outputMaterial: { result in
+                "\(result.text)#\(result.totalTime)#\(result.decision.isLocal)"
+            }
+        )
     }
     
     /// Execute with automatic fallback on failure
@@ -441,7 +383,7 @@ public actor HybridExecutionManager {
             phase: phase,
             percentComplete: percent,
             message: message,
-            timestamp: Date()
+            timestamp: clock.now()
         )
         
         delegates = delegates.filter { $0.value.delegate != nil }
@@ -471,6 +413,138 @@ public actor HybridExecutionManager {
         case 10..<16: return .llama31
         case 6..<10: return .qwen25
         default: return .gemma2
+        }
+    }
+    
+    private func executeCore(
+        prompt: String,
+        configuration: ExecutionConfiguration
+    ) async throws -> HybridExecutionResult {
+        let executionStartTime = clock.now()
+        currentPhase = .sanitizing
+        notifyProgress(phase: .sanitizing, percent: 0.1, message: "Sanitizing input...")
+        
+        let sanitizationResult = sanitizePrompt(prompt)
+        let sanitizedPrompt = sanitizationResult.sanitized
+        notifyProgress(phase: .sanitizing, percent: 0.2, message: "PII check complete")
+        try await logRedactionIfNeeded(sanitizationResult)
+        
+        let routingStartTime = clock.now()
+        notifyProgress(phase: .routing, percent: 0.3, message: "Determining execution path...")
+        let decision = try await chooseRoutingDecision(
+            prompt: sanitizedPrompt,
+            configuration: configuration
+        )
+        let routingTime = clock.now().timeIntervalSince(routingStartTime)
+        notifyProgress(phase: .routing, percent: 0.4, message: "Routing decision: \(decision.isLocal ? "Local" : "Cloud")")
+        
+        let generationStartTime = clock.now()
+        let resultText = try await generateText(
+            prompt: sanitizedPrompt,
+            decision: decision,
+            configuration: configuration
+        )
+        let generationTime = clock.now().timeIntervalSince(generationStartTime)
+        let totalTime = clock.now().timeIntervalSince(executionStartTime)
+        
+        notifyProgress(phase: .completed, percent: 1.0, message: "Execution complete")
+        
+        let result = HybridExecutionResult(
+            text: resultText,
+            decision: decision,
+            intentAnalysis: nil,
+            routingTime: routingTime,
+            generationTime: generationTime,
+            totalTime: totalTime,
+            piiRedacted: sanitizationResult.wasSanitized,
+            metadata: [
+                "originalPromptLength": String(prompt.count),
+                "sanitizedPromptLength": String(sanitizedPrompt.count),
+                "violationsRedacted": String(sanitizationResult.violations.count)
+            ]
+        )
+        
+        notifyCompletion(result)
+        return result
+    }
+    
+    private func sanitizePrompt(_ prompt: String) -> SanitizationResult {
+        InputSanitizer().sanitize(prompt)
+    }
+    
+    private func logRedactionIfNeeded(_ result: SanitizationResult) async throws {
+        guard result.wasSanitized else {
+            return
+        }
+        
+        let details = result.violations.map { $0.patternName }.joined(separator: ", ")
+        try await auditService.log(
+            type: .piiRedaction,
+            source: "HybridExecutionManager",
+            details: "PII redacted: \(details)"
+        )
+    }
+    
+    private func chooseRoutingDecision(
+        prompt: String,
+        configuration: ExecutionConfiguration
+    ) async throws -> RouterDecision {
+        if configuration.forceLocal {
+            let vramStatus = await vramMonitor.getCurrentStatus()
+            return RouterDecision.local(selectModelForVRAM(vramStatus.availableVRAM))
+        }
+        
+        if configuration.forceCloud {
+            return RouterDecision.cloud(
+                .anthropic,
+                configuration.preferredCloudTier.defaultModel(for: .anthropic)
+            )
+        }
+        
+        if configuration.useIntentAnalysis {
+            notifyProgress(phase: .analyzingIntent, percent: 0.35, message: "Analyzing intent with Cloud Mini...")
+            return try await shadowRouter.route(prompt: prompt)
+        }
+        
+        return try await shadowRouter.quickRoute(prompt: prompt)
+    }
+    
+    private func generateText(
+        prompt: String,
+        decision: RouterDecision,
+        configuration: ExecutionConfiguration
+    ) async throws -> String {
+        switch decision {
+        case .local(let modelClass):
+            return try await executeLocal(
+                prompt: prompt,
+                modelClass: modelClass,
+                configuration: configuration
+            )
+        case .cloud(let provider, let model):
+            return try await executeCloud(
+                prompt: prompt,
+                provider: provider,
+                model: model,
+                configuration: configuration
+            )
+        }
+    }
+    
+    private func mapFunctionError(_ error: FunctionError) -> Error {
+        switch error {
+        case .invalidInput(let message):
+            return ShadowRouterError.routingFailed(message)
+        case .timeoutExceeded(let seconds):
+            return ShadowRouterError.routingFailed("Execution timed out after \(seconds)s")
+        case .cancellationRequested:
+            return ShadowRouterError.routingFailed("Execution cancelled")
+        case .memoryBudgetExceeded(let limit, let observed):
+            return ShadowRouterError.routingFailed("Memory budget exceeded \(observed)MB > \(limit)MB")
+        case .deterministicViolation(let message):
+            return ShadowRouterError.routingFailed(message)
+        case .executionFailed(let message):
+            return ShadowRouterError.routingFailed(message)
         }
     }
 }

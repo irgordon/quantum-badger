@@ -12,6 +12,7 @@ public enum AuditEventType: String, Sendable, Codable, CaseIterable {
     case keyAccess = "KeyAccess"
     case sanitizationTriggered = "SanitizationTriggered"
     case authenticationFailure = "AuthenticationFailure"
+    case functionExecution = "FunctionExecution"
 }
 
 // MARK: - Audit Event

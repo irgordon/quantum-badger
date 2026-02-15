@@ -50,3 +50,12 @@ public typealias BadgerPromptComplexity = PromptComplexity
 public typealias BadgerRouterDecision = RouterDecision
 public typealias BadgerSystemState = SystemState
 public typealias BadgerRouterConfiguration = RouterConfiguration
+
+// MARK: - SLA Exports
+
+public typealias BadgerFunctionSLA = FunctionSLA
+public typealias BadgerFunctionError = FunctionError
+public typealias BadgerFunctionClock = FunctionClock
+public typealias BadgerSystemFunctionClock = SystemFunctionClock
+public typealias BadgerSLARuntimeGuard = SLARuntimeGuard
+public typealias BadgerFunctionAuditRecord = FunctionAuditRecord
