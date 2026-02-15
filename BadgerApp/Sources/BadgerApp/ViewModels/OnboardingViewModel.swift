@@ -272,26 +272,32 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
     }
     
     private func startWebAuthSession(url: URL, callbackURLScheme: String, provider: CloudProvider) {
+        let completionHandler = makeWebAuthCompletionHandler(provider: provider)
         webAuthSession = ASWebAuthenticationSession(
             url: url,
-            callbackURLScheme: callbackURLScheme
-        ) { [weak self] callbackURL, error in
-            Task { [weak self] in
-                guard let self else { return }
-                await MainActor.run {
-                    self.handleWebAuthenticationResult(
-                        callbackURL: callbackURL,
-                        error: error,
-                        provider: provider
-                    )
-                }
-            }
-        }
+            callbackURLScheme: callbackURLScheme,
+            completionHandler: completionHandler
+        )
         
         webAuthSession?.presentationContextProvider = self
         webAuthSession?.prefersEphemeralWebBrowserSession = true
         
         webAuthSession?.start()
+    }
+    
+    nonisolated private func makeWebAuthCompletionHandler(
+        provider: CloudProvider
+    ) -> @Sendable (URL?, (any Error)?) -> Void {
+        { [weak self] callbackURL, error in
+            Task { @MainActor in
+                guard let self else { return }
+                self.handleWebAuthenticationResult(
+                    callbackURL: callbackURL,
+                    error: error,
+                    provider: provider
+                )
+            }
+        }
     }
     
     private func handleWebAuthenticationResult(

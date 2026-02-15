@@ -124,9 +124,9 @@ public struct ExecutionProgress: Sendable {
 // MARK: - Hybrid Execution Manager Delegate
 
 public protocol HybridExecutionManagerDelegate: AnyObject, Sendable {
-    func executionDidUpdateProgress(_ progress: ExecutionProgress)
-    func executionDidComplete(_ result: HybridExecutionResult)
-    func executionDidFail(_ error: Error)
+    @MainActor func executionDidUpdateProgress(_ progress: ExecutionProgress)
+    @MainActor func executionDidComplete(_ result: HybridExecutionResult)
+    @MainActor func executionDidFail(_ error: Error)
 }
 
 // MARK: - Hybrid Execution Manager
@@ -388,21 +388,30 @@ public actor HybridExecutionManager {
         
         delegates = delegates.filter { $0.value.delegate != nil }
         for wrapper in delegates.values {
-            wrapper.delegate?.executionDidUpdateProgress(progress)
+            guard let delegate = wrapper.delegate else { continue }
+            Task { @MainActor in
+                delegate.executionDidUpdateProgress(progress)
+            }
         }
     }
     
     private func notifyCompletion(_ result: HybridExecutionResult) {
         delegates = delegates.filter { $0.value.delegate != nil }
         for wrapper in delegates.values {
-            wrapper.delegate?.executionDidComplete(result)
+            guard let delegate = wrapper.delegate else { continue }
+            Task { @MainActor in
+                delegate.executionDidComplete(result)
+            }
         }
     }
     
     private func notifyFailure(_ error: Error) {
         delegates = delegates.filter { $0.value.delegate != nil }
         for wrapper in delegates.values {
-            wrapper.delegate?.executionDidFail(error)
+            guard let delegate = wrapper.delegate else { continue }
+            Task { @MainActor in
+                delegate.executionDidFail(error)
+            }
         }
     }
     
