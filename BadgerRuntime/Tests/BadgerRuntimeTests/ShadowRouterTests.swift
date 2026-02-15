@@ -140,9 +140,9 @@ struct HybridExecutionManagerTests {
     
     @Test("Execution Configuration presets")
     func testExecutionConfigurationPresets() async throws {
-        let default = ExecutionConfiguration.default
-        #expect(default.useIntentAnalysis == true)
-        #expect(default.allowFallback == true)
+        let defaultConfig = ExecutionConfiguration.default
+        #expect(defaultConfig.useIntentAnalysis == true)
+        #expect(defaultConfig.allowFallback == true)
         
         let fast = ExecutionConfiguration.fast
         #expect(fast.useIntentAnalysis == false)

@@ -174,7 +174,7 @@ struct ChatInterfaceView: View {
                 } label: {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.system(size: 32))
-                        .foregroundStyle(prompt.isEmpty ? .secondary : .blue)
+                        .foregroundStyle(Color.blue.opacity(prompt.isEmpty ? 0.3 : 1.0))
                 }
                 .buttonStyle(.plain)
                 .disabled(prompt.isEmpty)

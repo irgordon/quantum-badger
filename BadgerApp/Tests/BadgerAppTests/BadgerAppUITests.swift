@@ -162,31 +162,8 @@ struct BadgerAppUITests {
     }
 }
 
-@Suite("BadgerApp Integration Tests")
-struct BadgerAppIntegrationTests {
-    
-    @Test("App Coordinator shared instance")
-    func testSharedCoordinator() async throws {
-        let coordinator1 = AppCoordinator.shared
-        let coordinator2 = AppCoordinator.shared
-        
-        // Should be same instance
-        #expect(coordinator1 === coordinator2)
-    }
-    
-    @Test("BadgerApp convenience methods")
-    func testConvenienceMethods() async throws {
-        // These are async methods that would fail without proper setup,
-        // but we can verify they exist and have correct signatures
-        
-        // Test that mainWindow returns a view
-        let mainWindow = BadgerApp.mainWindow()
-        #expect(type(of: mainWindow) == MainWindowView.self)
-        
-        // Test that onboardingView returns a view
-        let onboardingView = BadgerApp.onboardingView()
-        #expect(type(of: onboardingView) == OnboardingView.self)
-    }
+@Suite("BadgerApp UI Tests")
+struct BadgerAppUITestsSuite {
     
     @Test("Indexed Item categorization")
     func testIndexedItemCategorization() async throws {

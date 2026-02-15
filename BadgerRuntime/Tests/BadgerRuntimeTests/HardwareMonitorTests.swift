@@ -21,8 +21,8 @@ struct HardwareMonitorTests {
             currentAllocatedSize: 4 * 1024 * 1024 * 1024          // 4GB
         )
         
-        // Available should be ~80% of max minus allocated
-        let expectedAvailable = UInt64(Double(16 * 1024 * 1024 * 1024) * 0.8) - (4 * 1024 * 1024 * 1024)
+        // Available should be 75% of max minus allocated (implementation uses 0.75 safe limit)
+        let expectedAvailable = UInt64(Double(16 * 1024 * 1024 * 1024) * 0.75) - (4 * 1024 * 1024 * 1024)
         #expect(status.availableVRAM == expectedAvailable)
         #expect(status.hasSufficientVRAM == true) // Should have more than 4GB
     }

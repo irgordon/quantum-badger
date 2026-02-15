@@ -135,7 +135,7 @@ public actor VRAMMonitor {
     
     /// Get the current VRAM status
     /// - Returns: VRAMStatus with current memory information
-    public func getCurrentStatus() async -> VRAMStatus {
+    public func getCurrentStatus() -> VRAMStatus {
         guard let device = metalDevice else {
             return VRAMStatus(recommendedMaxWorkingSetSize: 0, currentAllocatedSize: nil)
         }

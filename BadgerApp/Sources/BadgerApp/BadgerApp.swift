@@ -35,7 +35,7 @@ public typealias BadgerProcessRemoteCommand = ProcessRemoteCommand
 public typealias BadgerGetSystemStatus = GetSystemStatus
 public typealias BadgerAskQuestion = AskQuestion
 public typealias BadgerCommandSourceParameter = CommandSourceParameter
-public typealias BadgerAppShortcuts = BadgerAppShortcuts
+// Note: AppShortcuts is defined in AppShortcuts.swift
 
 // Formatting
 public typealias BadgerResponseFormatter = ResponseFormatter
@@ -70,11 +70,7 @@ public typealias BadgerExecutionConfiguration = ExecutionConfiguration
 public typealias BadgerExecutionPhase = ExecutionPhase
 public typealias BadgerExecutionProgress = ExecutionProgress
 
-// Unified Inference
-public typealias BadgerUnifiedInferenceEngine = UnifiedInferenceEngine
-public typealias BadgerInferencePreference = InferencePreference
-public typealias BadgerInferenceSource = InferenceSource
-public typealias BadgerUnifiedInferenceResult = UnifiedInferenceResult
+// Note: Unified Inference types are internal implementation details
 
 // View Models
 public typealias BadgerDashboardViewModel = DashboardViewModel

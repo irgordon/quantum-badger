@@ -133,7 +133,7 @@ public actor SearchIndexer {
         response: String,
         context: ExecutionContext
     ) async {
-        let category = Self.categorizeInteraction(query: query, response: response)
+        let category = categorizeInteraction(query: query, response: response)
         
         let item = IndexedItem(
             query: query,
@@ -161,14 +161,14 @@ public actor SearchIndexer {
     
     /// Index a complete interaction item
     public func indexItem(_ item: IndexedItem) async throws {
-        addToRecentItems(item)
+        await addToRecentItems(item)
         try await indexToSpotlight(item: item)
     }
     
     /// Batch index multiple items
     public func indexItems(_ items: [IndexedItem]) async throws {
         for item in items {
-            addToRecentItems(item)
+            await addToRecentItems(item)
         }
         
         // Use nonisolated helper
@@ -384,7 +384,7 @@ public actor SearchIndexer {
     }
     
     nonisolated private static func parseSearchableItem(_ item: CSSearchableItem) -> SearchResult? {
-        let attributeSet = item.attributeSet
+        guard let attributeSet = item.attributeSet else { return nil }
         
         return SearchResult(
             id: item.uniqueIdentifier,

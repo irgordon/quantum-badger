@@ -109,7 +109,7 @@ public struct FormattedOutput: Sendable {
 
 /// Central coordinator for executing commands from various sources
 @MainActor
-public final class AppCoordinator: Sendable {
+public final class AppCoordinator: ObservableObject, Sendable {
     
     // MARK: - Properties
     

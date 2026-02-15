@@ -84,6 +84,7 @@ struct CloudAccountsSettingsTests {
     }
     
     @Test("Cloud accounts view model initialization")
+    @MainActor
     func testViewModelInit() async throws {
         let viewModel = CloudAccountsViewModel()
         #expect(viewModel.providerStatuses.isEmpty)

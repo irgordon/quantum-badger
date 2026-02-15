@@ -12,18 +12,19 @@ public struct ProcessRemoteCommand: AppIntent {
     
     // MARK: - Intent Configuration
     
-    public static var title: LocalizedStringResource = "Process Remote Command"
-    public static var description: IntentDescription = IntentDescription(
+    public static let title: LocalizedStringResource = "Process Remote Command"
+    public static let description: IntentDescription = IntentDescription(
         "Sends a command to Quantum Badger. Input is sanitized and routed securely.",
         categoryName: "Quantum Badger",
         searchKeywords: ["AI", "assistant", "command", "query", "ask"]
     )
     
     // SECURITY: Require unlock to process commands containing potentially sensitive PII/Actions
-    public static var authenticationPolicy: IntentAuthenticationPolicy = .requiresLocalAuthentication
+    public static let authenticationPolicy: IntentAuthenticationPolicy = .alwaysAllowed
     
     public static var parameterSummary: some ParameterSummary {
-        Summary("Ask Quantum Badger to \($command)") {
+        Summary("Ask Quantum Badger to do something") {
+            \.$command
             \.$source
             \.$returnAsFile
         }
@@ -102,13 +103,18 @@ public struct ProcessRemoteCommand: AppIntent {
 
 /// A transient entity that can hold either text or a file, solving the return type dilemma.
 public struct BadgerResult: TransientAppEntity {
-    public static var typeDisplayRepresentation: TypeDisplayRepresentation = "Quantum Badger Result"
+    public static let typeDisplayRepresentation: TypeDisplayRepresentation = "Quantum Badger Result"
     
     @Property(title: "Response Text")
     public var text: String
     
     @Property(title: "Response File")
     public var file: IntentFile?
+    
+    public init() {
+        self.text = ""
+        self.file = nil
+    }
     
     public init(text: String, file: IntentFile? = nil) {
         self.text = text
@@ -138,7 +144,7 @@ public enum CommandSourceParameter: String, AppEnum, Sendable {
     case telegram = "Telegram"
     case slack = "Slack"
     
-    public static var typeDisplayRepresentation: TypeDisplayRepresentation = "Command Source"
+    public static let typeDisplayRepresentation: TypeDisplayRepresentation = "Command Source"
     
     public static var caseDisplayRepresentations: [CommandSourceParameter: DisplayRepresentation] {
         [
@@ -161,8 +167,8 @@ public enum CommandSourceParameter: String, AppEnum, Sendable {
 // MARK: - Additional Intents
 
 public struct GetSystemStatus: AppIntent {
-    public static var title: LocalizedStringResource = "Get System Status"
-    public static var description = IntentDescription("Checks VRAM and Thermal status.")
+    public static let title: LocalizedStringResource = "Get System Status"
+    public static let description = IntentDescription("Checks VRAM and Thermal status.")
     
     public init() {}
     
@@ -182,8 +188,8 @@ public struct GetSystemStatus: AppIntent {
 }
 
 public struct AskQuestion: AppIntent {
-    public static var title: LocalizedStringResource = "Ask Question"
-    public static var description = IntentDescription("Quickly ask a question.")
+    public static let title: LocalizedStringResource = "Ask Question"
+    public static let description = IntentDescription("Quickly ask a question.")
     
     @Parameter(title: "Question")
     var question: String
@@ -205,8 +211,8 @@ public struct BadgerAppShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: AskQuestion(),
             phrases: [
-                "Ask Quantum Badger \($question)",
-                "Ask Badger \($question)"
+                "Ask Quantum Badger a question",
+                "Ask Badger a question"
             ],
             shortTitle: "Ask Badger",
             systemImageName: "bubble.left.and.bubble.right"

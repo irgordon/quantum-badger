@@ -251,7 +251,7 @@ public enum PromptComplexity: String, Sendable, Codable, CaseIterable {
 // MARK: - Router Decision
 
 /// Represents the routing decision made by the Shadow Router
-public enum RouterDecision: Sendable, Codable {
+public enum RouterDecision: Sendable, Codable, Equatable {
     case local(ModelClass)
     case cloud(CloudProvider, String)
     

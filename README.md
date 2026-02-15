@@ -67,16 +67,31 @@
 ```bash
 git clone https://github.com/yourusername/quantum-badger.git
 cd quantum-badger
-
 ```
 
+2. **Build the project**
+```bash
+./build.sh
+```
 
-2. **Open the Project**
-Open `QuantumBadger.xcodeproj` in Xcode.
-3. **Resolve Packages**
-Xcode should automatically fetch dependencies (BadgerCore, BadgerRuntime, MLX-Swift).
-4. **Build & Run**
-Select your target (Mac or iPad) and hit **Run (Cmd+R)**.
+Or with options:
+```bash
+./build.sh --config release    # Build release configuration
+./build.sh --test              # Build and run tests
+./build.sh --clean             # Clean and rebuild
+```
+
+3. **Open the Project (for development)**
+The project uses Swift Package Manager. You can open it in Xcode or use the command line:
+```bash
+open Package.swift  # Or use VS Code with Swift extension
+```
+
+4. **Resolve Packages**
+Dependencies are automatically fetched during build. Manual resolution:
+```bash
+cd BadgerApp && swift package resolve
+```
 
 ---
 

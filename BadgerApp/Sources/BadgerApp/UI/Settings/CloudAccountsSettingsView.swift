@@ -125,7 +125,13 @@ struct ProviderStatusCard: View {
             
             HStack(spacing: 8) {
                 if status.isAuthenticated {
-                    Button { Task { isTesting = true; await onTest(); isTesting = false } } label: { isTesting ? ProgressView().scaleEffect(0.6).frame(width: 20, height: 20) : Image(systemName: "bolt.horizontal") }.buttonStyle(.borderless)
+                    Button { Task { isTesting = true; await onTest(); isTesting = false } } label: { 
+                        if isTesting {
+                            ProgressView().scaleEffect(0.6).frame(width: 20, height: 20)
+                        } else {
+                            Image(systemName: "bolt.horizontal")
+                        }
+                    }.buttonStyle(.borderless)
                     Button { onDisconnect() } label: { Image(systemName: "xmark.circle").foregroundStyle(.red) }.buttonStyle(.borderless)
                 } else {
                     Button("Connect") { onConnect() }.buttonStyle(.borderedProminent).controlSize(.small)
@@ -158,7 +164,8 @@ struct ProviderAuthSheet: View {
                     VStack(spacing: 24) {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("How to get your API key:").font(.headline)
-                            ForEach(provider.apiKeyInstructions, id: \\.self) { instruction in
+                            ForEach(0..<provider.apiKeyInstructions.count, id: \.self) { index in
+                                let instruction = provider.apiKeyInstructions[index]
                                 HStack(alignment: .top, spacing: 8) { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).font(.caption); Text(instruction).font(.subheadline) }
                             }
                             Link("Open \(provider.displayName) API Dashboard", destination: provider.dashboardURL).font(.subheadline).padding(.top, 8)
@@ -194,19 +201,18 @@ struct ProviderAuthSheet: View {
 }
 
 @MainActor
-@Observable
-public final class CloudAccountsViewModel {
-    public var providerStatuses: [ProviderStatus] = []
-    public var isLoading = false
-    public var showError = false
-    public var currentError: AuthError?
-    public var showDisconnectConfirmation = false
-    public var providerToDisconnect: CloudProvider?
-    public var selectedProviderForAuth: CloudProvider?
-    public var lastAttemptedProvider: CloudProvider?
-    public var apiKeyInput = ""
-    public var validationError: String?
-    public var isValidating = false
+public final class CloudAccountsViewModel: ObservableObject {
+    @Published public var providerStatuses: [ProviderStatus] = []
+    @Published public var isLoading = false
+    @Published public var showError = false
+    @Published public var currentError: AuthError?
+    @Published public var showDisconnectConfirmation = false
+    @Published public var providerToDisconnect: CloudProvider?
+    @Published public var selectedProviderForAuth: CloudProvider?
+    @Published public var lastAttemptedProvider: CloudProvider?
+    @Published public var apiKeyInput = ""
+    @Published public var validationError: String?
+    @Published public var isValidating = false
     
     private let keyManager = KeyManager()
     private let cloudService = CloudInferenceService()

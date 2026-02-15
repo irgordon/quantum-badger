@@ -77,10 +77,10 @@ struct LocalEngineTests {
             .inferenceFailed("Test"),
             .insufficientVRAM,
             .thermalThrottling,
-            .invalidModelFormat,
+            .invalidModelFormat("Test"),
             .quantizationFailed,
             .tokenizerNotFound,
-            .generationFailed
+            .generationFailed("Test")
         ]
         
         #expect(errors.count == 9)
@@ -108,7 +108,7 @@ struct LocalEngineTests {
     @Test("List available models in non-existent directory")
     func testListAvailableModelsEmpty() async throws {
         let engine = LocalInferenceEngine()
-        let models = engine.listAvailableModels(in: URL(fileURLWithPath: "/nonexistent"))
+        let models = await engine.listAvailableModels(in: URL(fileURLWithPath: "/nonexistent"))
         #expect(models.isEmpty == true)
     }
     
@@ -117,14 +117,14 @@ struct LocalEngineTests {
         let engine = LocalInferenceEngine()
         
         // Small model
-        let smallMemory = engine.estimateMemoryRequired(
+        let smallMemory = await engine.estimateMemoryRequired(
             modelClass: .qwen25,  // 7B
             quantization: .q4
         )
         #expect(smallMemory > 0)
         
         // Large model
-        let largeMemory = engine.estimateMemoryRequired(
+        let largeMemory = await engine.estimateMemoryRequired(
             modelClass: .phi4,  // 14B
             quantization: .q8
         )

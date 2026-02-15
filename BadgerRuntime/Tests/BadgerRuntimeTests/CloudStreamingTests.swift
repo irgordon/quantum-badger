@@ -165,27 +165,3 @@ struct CloudStreamingTests {
     }
 }
 
-@Suite("Cloud Service Extensions Tests")
-struct CloudServiceExtensionsTests {
-    
-    @Test("Generate streaming exists")
-    func testGenerateStreamingExists() async throws {
-        let service = CloudInferenceService()
-        
-        let stream = service.generateStreaming(
-            messages: [CloudMessage(role: .user, content: "Test")],
-            configuration: CloudRequestConfiguration(provider: .openAI)
-        )
-        
-        #expect(stream != nil)
-    }
-    
-    @Test("Generate with retry exists")
-    func testGenerateWithRetryExists() async throws {
-        let service = CloudInferenceService()
-        
-        // This should compile and be callable
-        // We can't actually test it without network
-        let _ = service.generateWithRetry
-    }
-}

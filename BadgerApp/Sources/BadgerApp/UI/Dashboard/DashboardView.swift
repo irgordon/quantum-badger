@@ -329,7 +329,7 @@ struct DecisionFlowView: View {
                 icon: "brain.head.profile",
                 label: "Analyze",
                 isActive: isAnalyzingOrAfter(state),
-                isCurrent: state == .analyzingIntent
+                isCurrent: isAnalyzing(state)
             )
             
             flowArrow(isActive: isAfterAnalysis(state))
@@ -397,6 +397,13 @@ struct DecisionFlowView: View {
         default:
             return false
         }
+    }
+    
+    private func isAnalyzing(_ state: DashboardViewModel.RouterFlowState) -> Bool {
+        if case .analyzingIntent = state {
+            return true
+        }
+        return false
     }
     
     private func isAfterAnalysis(_ state: DashboardViewModel.RouterFlowState) -> Bool {

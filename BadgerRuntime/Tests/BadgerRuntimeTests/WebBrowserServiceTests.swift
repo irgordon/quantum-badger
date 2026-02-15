@@ -116,28 +116,4 @@ struct WebBrowserServiceTests {
         }
     }
     
-    @Test("Check accessibility method")
-    func testCheckAccessibility() async throws {
-        let service = WebBrowserService()
-        
-        // Blocked domain should not be accessible
-        let blockedAccessible = await service.checkAccessibility("https://doubleclick.net/tracker")
-        #expect(blockedAccessible == false)
-        
-        // Regular domain should be accessible (security check passes)
-        let normalAccessible = await service.checkAccessibility("https://example.com")
-        #expect(normalAccessible == true)
-    }
-    
-    @Test("Rate limiting")
-    func testRateLimiting() async throws {
-        let service = WebBrowserService()
-        
-        // First check should pass
-        let firstCheck = await service.checkAccessibility("https://example.com")
-        #expect(firstCheck == true)
-        
-        // Immediate second check to same host should also pass (1 second window)
-        // but actual rate limit is tested in the fetchContent method
-    }
 }

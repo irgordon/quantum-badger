@@ -73,11 +73,22 @@ public struct PrivacyEgressFilter: Sendable {
         PatternMatcher(type: .socialSecurityNumber, pattern: #"\b(\d{3}-\d{2}-\d{4}|\d{9})\b"#, confidence: .high),
         PatternMatcher(type: .emailAddress, pattern: #"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"#, confidence: .high),
         PatternMatcher(type: .phoneNumber, pattern: #"\b(?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}\b"#, confidence: .high),
-        PatternMatcher(type: .creditCard, pattern: #"\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|3(?:0[0-5]|[68][0-9])[0-9]{11}|6(?:011|5[0-9]{2})[0-9]{12})\b"#, confidence: .high),
+        // Credit card patterns - using separate patterns to avoid overlapping matches
+        // Visa: 13 or 16 digits starting with 4
+        PatternMatcher(type: .creditCard, pattern: #"\b4[0-9]{15}\b"#, confidence: .high), // 16-digit Visa
+        PatternMatcher(type: .creditCard, pattern: #"\b4[0-9]{12}\b"#, confidence: .high), // 13-digit Visa
+        // Mastercard: 16 digits starting with 51-55
+        PatternMatcher(type: .creditCard, pattern: #"\b5[1-5][0-9]{14}\b"#, confidence: .high),
+        // Amex: 15 digits starting with 34 or 37
+        PatternMatcher(type: .creditCard, pattern: #"\b3[47][0-9]{13}\b"#, confidence: .high),
+        // Diners Club: 14 digits
+        PatternMatcher(type: .creditCard, pattern: #"\b3(?:0[0-5]|[68][0-9])[0-9]{11}\b"#, confidence: .high),
+        // Discover: 16 digits starting with 6011 or 65
+        PatternMatcher(type: .creditCard, pattern: #"\b6(?:011|5[0-9]{2})[0-9]{12}\b"#, confidence: .high),
         PatternMatcher(type: .ipAddress, pattern: #"\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b"#, confidence: .medium),
         PatternMatcher(type: .macAddress, pattern: #"\b(?:[0-9A-Fa-f]{2}[:-]){5}(?:[0-9A-Fa-f]{2})\b"#, confidence: .medium),
         PatternMatcher(type: .apiKey, pattern: #"(?i)(?:api[_-]?key|apikey)\s*[:=]\s*['\"]?[a-zA-Z0-9_\-]{16,}['\"]?"#, confidence: .high),
-        PatternMatcher(type: .apiKey, pattern: #"\bsk-[a-zA-Z0-9]{20,}\b"#, confidence: .high),
+        PatternMatcher(type: .apiKey, pattern: #"\bsk-[a-zA-Z0-9]{16,}\b"#, confidence: .high),
         PatternMatcher(type: .password, pattern: #"(?i)(?:password|passwd|pwd)\s*[:=]\s*['\"]?[^\s'\"]+['\"]?"#, confidence: .high),
         PatternMatcher(type: .accessToken, pattern: #"(?i)(?:token|secret|access[_-]?key)\s*[:=]\s*['\"]?[a-zA-Z0-9_\-]{16,}['\"]?"#, confidence: .high),
         PatternMatcher(type: .passportNumber, pattern: #"\b[A-Z]{1}[0-9]{6,9}\b"#, confidence: .medium),
@@ -142,6 +153,10 @@ public struct PrivacyEgressFilter: Sendable {
             }
         }
         
+        // Deduplicate overlapping detections of the same type
+        // Keep the longest match when there are overlaps
+        detections = deduplicateOverlappingDetections(detections)
+        
         // Sort by position
         return detections.sorted { $0.range.lowerBound < $1.range.lowerBound }
     }
@@ -178,6 +193,49 @@ public struct PrivacyEgressFilter: Sendable {
     
     public func containsHighRiskData(_ text: String) -> Bool {
         detectSensitiveData(in: text).contains { $0.type.isHighRisk }
+    }
+    
+    /// Deduplicate overlapping detections, preferring high-confidence matches over low-confidence ones.
+    /// When detections overlap, we keep the one with higher confidence (or longer match if same confidence).
+    private func deduplicateOverlappingDetections(_ detections: [Detection]) -> [Detection] {
+        // Sort all detections by:
+        // 1. Range start position
+        // 2. Confidence (high > medium > low)
+        // 3. Match length (longer is better)
+        let sorted = detections.sorted(by: { (a, b) in
+            if a.range.lowerBound != b.range.lowerBound {
+                return a.range.lowerBound < b.range.lowerBound
+            }
+            // Same start position - sort by confidence priority
+            let aPriority = confidencePriority(a.confidence)
+            let bPriority = confidencePriority(b.confidence)
+            if aPriority != bPriority {
+                return aPriority > bPriority // Higher priority first
+            }
+            // Same confidence - longer match first
+            return a.matchedText.count > b.matchedText.count
+        })
+        
+        var filtered: [Detection] = []
+        for detection in sorted {
+            // Check if this detection overlaps with any already filtered detection
+            let overlaps = filtered.contains { existing in
+                detection.range.overlaps(existing.range)
+            }
+            if !overlaps {
+                filtered.append(detection)
+            }
+        }
+        
+        return filtered
+    }
+    
+    private func confidencePriority(_ confidence: Detection.DetectionConfidence) -> Int {
+        switch confidence {
+        case .high: return 3
+        case .medium: return 2
+        case .low: return 1
+        }
     }
 }
 
