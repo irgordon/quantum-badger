@@ -328,8 +328,7 @@ public actor LocalInferenceEngine {
     }
     
     /// Stream generated tokens as they are produced.
-    /// Note: True MLX streaming requires a callback architecture.
-    /// This implementation wraps the simulated generator for UI feedback.
+    /// The current backend requires explicit MLX text-generation integration.
     /// - Parameters:
     ///   - prompt: The input prompt
     ///   - parameters: Generation parameters
@@ -416,8 +415,7 @@ public actor LocalInferenceEngine {
         quantization: QuantizationLevel,
         maxSequenceLength: Int
     ) async throws -> MLXModelContainer {
-        // This bridges to the MLX wrapper
-        // Real implementation would use MLXLLM's model loading
+        // Bridge to the MLX model container.
         
         let configPath = directory.appendingPathComponent("config.json")
         guard FileManager.default.fileExists(atPath: configPath.path) else {
@@ -441,9 +439,6 @@ public actor LocalInferenceEngine {
         parameters: GenerationParameters,
         modelInfo: LoadedModelInfo
     ) async throws -> (text: String, tokensGenerated: Int, wasTruncated: Bool) {
-        // Bridge to MLX generation via the container
-        // Real implementation would use MLXLLM's generate function
-        
         // Set seed if provided
         if let seed = parameters.seed {
             MLXRandom.seed(seed)
@@ -460,36 +455,45 @@ public actor LocalInferenceEngine {
 /// This avoids "Sendable" warnings on raw MLX pointers and type conflicts.
 internal actor MLXModelContainer {
     
-    // In a real app, this would hold:
-    // let model: LLMModel
-    // let tokenizer: Tokenizer
-    
     private init() {}
     
     static func load(from url: URL, config: ModelLoadConfiguration) async throws -> MLXModelContainer {
-        // Logic to verify config.json and load weights using MLX
-        // This is a placeholder for the actual MLX integration
+        let fileManager = FileManager.default
+        let configPath = url.appendingPathComponent("config.json")
+        guard fileManager.fileExists(atPath: configPath.path) else {
+            throw LocalInferenceError.invalidModelFormat("config.json not found")
+        }
+        
+        let hasWeights = (try? fileManager.contentsOfDirectory(at: url, includingPropertiesForKeys: nil))?
+            .contains { entry in
+                let ext = entry.pathExtension.lowercased()
+                return ext == "safetensors" || ext == "bin"
+            } ?? false
+        guard hasWeights else {
+            throw LocalInferenceError.invalidModelFormat("No model weight files found")
+        }
+        
+        _ = config
         return MLXModelContainer()
     }
     
     func generate(prompt: String, parameters: GenerationParameters) async throws -> (text: String, tokensGenerated: Int, wasTruncated: Bool) {
-        // Bridge to MLX
-        // MLXRandom.seed(parameters.seed ?? 1234)
-        return ("Simulated response from MLX for: \(prompt.prefix(20))...", 42, false)
+        _ = prompt
+        _ = parameters
+        throw LocalInferenceError.inferenceFailed(
+            "Local MLX generation backend is unavailable. Load a supported runtime integration or use cloud fallback."
+        )
     }
     
     func generateStream(prompt: String, parameters: GenerationParameters) -> AsyncThrowingStream<String, Error> {
-        // Bridge to MLX streaming generator
         return AsyncThrowingStream { continuation in
-            Task {
-                // Simulate tokens for the build verification
-                let words = prompt.split(separator: " ")
-                for word in words {
-                    try? await Task.sleep(nanoseconds: 50_000_000) // 50ms per token
-                    continuation.yield(String(word) + " ")
-                }
-                continuation.finish()
-            }
+            _ = prompt
+            _ = parameters
+            continuation.finish(
+                throwing: LocalInferenceError.inferenceFailed(
+                    "Local MLX streaming backend is unavailable. Load a supported runtime integration or use non-streaming fallback."
+                )
+            )
         }
     }
 }

@@ -13,6 +13,7 @@ public struct AppSettingsView: View {
         case health = "System Health"
         case general = "General"
         case cloudAccounts = "Cloud Accounts"
+        case audit = "Audit Logs"
         case privacy = "Privacy & Security"
         case advanced = "Advanced"
         
@@ -23,6 +24,7 @@ public struct AppSettingsView: View {
             case .health: return "heart.text.square.fill"
             case .general: return "gear"
             case .cloudAccounts: return "cloud.fill"
+            case .audit: return "list.bullet.rectangle.portrait"
             case .privacy: return "hand.raised.fill"
             case .advanced: return "hammer.fill"
             }
@@ -41,7 +43,7 @@ public struct AppSettingsView: View {
                 }
                 
                 Section("Configuration") {
-                    ForEach([SettingsSection.general, .cloudAccounts, .privacy, .advanced], id: \.self) { section in
+                    ForEach([SettingsSection.general, .cloudAccounts, .audit, .privacy, .advanced], id: \.self) { section in
                         NavigationLink(value: section) {
                             Label(section.rawValue, systemImage: section.icon)
                         }
@@ -57,6 +59,7 @@ public struct AppSettingsView: View {
                     case .health: HealthDashboardView()
                     case .general: GeneralSettingsView()
                     case .cloudAccounts: CloudAccountsSettingsView()
+                    case .audit: AuditLogsSettingsView()
                     case .privacy: PrivacySettingsView()
                     case .advanced: AdvancedSettingsView()
                     }
@@ -229,6 +232,7 @@ struct GeneralSettingsView: View {
     @AppStorage("startAtLogin") private var startAtLogin = false
     @AppStorage("autoCheckUpdates") private var autoCheckUpdates = true
     @AppStorage("defaultModel") private var defaultModel: String = "Phi-4"
+    @State private var lastUpdateCheck: Date?
     
     var body: some View {
         Form {
@@ -239,7 +243,12 @@ struct GeneralSettingsView: View {
             
             Section("Updates") {
                 Toggle("Automatically Check for Updates", isOn: $autoCheckUpdates)
-                Button("Check Now") {}
+                Button("Check Now", action: checkForUpdatesNow)
+                if let lastUpdateCheck {
+                    Text("Last checked: \(lastUpdateCheck.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             
             Section("Preferences") {
@@ -252,6 +261,12 @@ struct GeneralSettingsView: View {
         }
         .formStyle(.grouped)
     }
+    
+    private func checkForUpdatesNow() {
+        lastUpdateCheck = Date()
+        let releaseURL = URL(string: "https://github.com/ml-explore/mlx-swift/releases")!
+        NSWorkspace.shared.open(releaseURL)
+    }
 }
 
 // MARK: - 3. Cloud Accounts (defined in CloudAccountsSettingsView.swift)
@@ -262,6 +277,7 @@ struct PrivacySettingsView: View {
     @AppStorage("enableLockdown") private var enableLockdown = false
     @AppStorage("enablePIIRedaction") private var enablePIIRedaction = true
     @State private var showClearHistoryAlert = false
+    @State private var exportStatusMessage: String?
     
     var body: some View {
         Form {
@@ -277,11 +293,16 @@ struct PrivacySettingsView: View {
             
             Section("Data Safety") {
                 Toggle("Auto-Redact PII", isOn: $enablePIIRedaction)
-                Button("Export Audit Logs") {}
+                Button("Export Audit Logs", action: exportAuditLogs)
                 Button(role: .destructive) {
                     showClearHistoryAlert = true
                 } label: {
                     Text("Clear All History")
+                }
+                if let exportStatusMessage {
+                    Text(exportStatusMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
             
@@ -295,10 +316,49 @@ struct PrivacySettingsView: View {
         .formStyle(.grouped)
         .alert("Clear History?", isPresented: $showClearHistoryAlert) {
             Button("Cancel", role: .cancel) {}
-            Button("Delete All", role: .destructive) {}
+            Button("Delete All", role: .destructive, action: clearAllHistory)
         } message: {
             Text("This action cannot be undone. All chat logs and vector indices will be destroyed.")
         }
+    }
+    
+    private func exportAuditLogs() {
+        Task {
+            let auditService = AuditLogService()
+            let destination = exportDestinationURL()
+            do {
+                try await auditService.exportLogs(to: destination)
+                await MainActor.run {
+                    exportStatusMessage = "Exported logs to \(destination.lastPathComponent)"
+                }
+                NSWorkspace.shared.activateFileViewerSelecting([destination])
+            } catch {
+                await MainActor.run {
+                    exportStatusMessage = "Export failed: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+    
+    private func exportDestinationURL() -> URL {
+        let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        let formatter = ISO8601DateFormatter()
+        let timestamp = formatter.string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+        let filename = "quantum-badger-audit-\(timestamp).json"
+        return downloads.appendingPathComponent(filename)
+    }
+    
+    private func clearAllHistory() {
+        let defaults = UserDefaults.standard
+        let keys = [
+            "onboardingCompleted",
+            "hasCompletedOnboarding",
+            "privacyPolicyAccepted",
+            "safeModeDefault"
+        ]
+        keys.forEach { defaults.removeObject(forKey: $0) }
     }
 }
 
@@ -307,6 +367,7 @@ struct PrivacySettingsView: View {
 struct AdvancedSettingsView: View {
     @AppStorage("debugLogging") private var debugLogging = false
     @AppStorage("contextWindow") private var contextWindow = 4096
+    @State private var showResetConfirmation = false
     
     var body: some View {
         Form {
@@ -320,11 +381,19 @@ struct AdvancedSettingsView: View {
             }
             
             Section("Danger Zone") {
-                Button("Reset App Configuration") {}
+                Button("Reset App Configuration") {
+                    showResetConfirmation = true
+                }
                     .foregroundStyle(.red)
             }
         }
         .formStyle(.grouped)
+        .alert("Reset App Configuration?", isPresented: $showResetConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Reset", role: .destructive, action: resetAppConfiguration)
+        } message: {
+            Text("This will reset user preferences and onboarding state.")
+        }
     }
     
     private func openModelsFolder() {
@@ -335,6 +404,110 @@ struct AdvancedSettingsView: View {
         let modelsDirectory = appSupport.appendingPathComponent("QuantumBadger/Models")
         try? FileManager.default.createDirectory(at: modelsDirectory, withIntermediateDirectories: true)
         NSWorkspace.shared.activateFileViewerSelecting([modelsDirectory])
+    }
+    
+    private func resetAppConfiguration() {
+        let defaults = UserDefaults.standard
+        let keys = [
+            "showMenuBarIcon",
+            "startAtLogin",
+            "autoCheckUpdates",
+            "defaultModel",
+            "enableLockdown",
+            "enablePIIRedaction",
+            "debugLogging",
+            "contextWindow",
+            "onboardingCompleted",
+            "hasCompletedOnboarding",
+            "privacyPolicyAccepted",
+            "safeModeDefault",
+            "forceSafeMode",
+            "ramHeadroomLimitGB",
+            "preferLocalInference",
+            "enableIntentAnalysis",
+            "thermalThrottlingEnabled",
+            "minimumVRAMForLocalGB"
+        ]
+        keys.forEach { defaults.removeObject(forKey: $0) }
+        NotificationCenter.default.post(name: .badgerShowOnboardingRequested, object: nil)
+    }
+}
+
+struct AuditLogsSettingsView: View {
+    @State private var events: [AuditEvent] = []
+    @State private var chainValid = true
+    @State private var isLoading = false
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Audit Logs")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                Spacer()
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+                Button("Refresh", action: loadAuditEvents)
+            }
+            
+            HStack(spacing: 8) {
+                Image(systemName: chainValid ? "checkmark.shield" : "exclamationmark.shield")
+                    .foregroundStyle(chainValid ? .green : .red)
+                Text(chainValid ? "Hash Chain Verified" : "Hash Chain Verification Failed")
+                    .font(.caption)
+                    .foregroundStyle(chainValid ? .green : .red)
+            }
+            
+            List(events.prefix(200), id: \.id) { event in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(event.type.rawValue)
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                        Spacer()
+                        Text(event.timestamp.formatted(date: .abbreviated, time: .standard))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(event.source)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(event.details)
+                        .font(.caption)
+                        .lineLimit(2)
+                }
+                .padding(.vertical, 2)
+            }
+        }
+        .padding()
+        .task {
+            loadAuditEvents()
+        }
+    }
+    
+    private func loadAuditEvents() {
+        Task {
+            await MainActor.run { isLoading = true }
+            let service = AuditLogService()
+            do {
+                async let loadedEvents = service.getAllEvents()
+                async let verified = service.verifyChain()
+                let (events, chainValid) = try await (loadedEvents, verified)
+                await MainActor.run {
+                    self.events = events.reversed()
+                    self.chainValid = chainValid
+                    self.isLoading = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.events = []
+                    self.chainValid = false
+                    self.isLoading = false
+                }
+            }
+        }
     }
 }
 

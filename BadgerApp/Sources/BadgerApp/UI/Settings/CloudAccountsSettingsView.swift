@@ -76,6 +76,10 @@ public struct CloudAccountsSettingsView: View {
         VStack(alignment: .leading, spacing: 12) {
             Label("Your API keys are stored securely in the Secure Enclave.", systemImage: "lock.shield").font(.caption)
             Label("Data is only sent to connected providers when you choose cloud inference.", systemImage: "arrow.up.arrow.down").font(.caption)
+            Button("Connect with SSO (OAuth)") {
+                NotificationCenter.default.post(name: .badgerShowCloudSSORequested, object: nil)
+            }
+            .buttonStyle(.borderedProminent)
         }
         .padding().background(Color(.controlBackgroundColor)).clipShape(RoundedRectangle(cornerRadius: 12))
     }

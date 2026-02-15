@@ -71,6 +71,13 @@ public final class ModelsViewModel {
     
     private var downloadTasks: [ModelClass: Task<Void, Never>] = [:]
     
+    private struct HuggingFaceModelResponse: Decodable {
+        struct Sibling: Decodable {
+            let rfilename: String
+        }
+        let siblings: [Sibling]
+    }
+    
     // MARK: - Settings
     
     public struct ShadowRouterSettings: Equatable {
@@ -141,39 +148,22 @@ public final class ModelsViewModel {
         guard !modelInfo.isDownloaded else { return }
         
         updateDownloadState(for: modelInfo.modelClass, state: .downloading(progress: 0, bytesDownloaded: 0, totalBytes: 0))
-        
-        // Simulate download progress
-        let totalBytes = Int64(modelInfo.sizeGB * 1024 * 1024 * 1024)
-        
-        downloadTasks[modelInfo.modelClass] = Task {
-            for progress in stride(from: 0.0, to: 1.0, by: 0.05) {
-                guard !Task.isCancelled else { return }
-                
-                let bytesDownloaded = Int64(Double(totalBytes) * progress)
-                let state: DownloadState = .downloading(
-                    progress: progress,
-                    bytesDownloaded: bytesDownloaded,
-                    totalBytes: totalBytes
-                )
-                
+        let modelClass = modelInfo.modelClass
+        let repo = modelInfo.huggingFaceRepo
+        downloadTasks[modelClass] = Task {
+            do {
+                try await self.performModelDownload(modelClass: modelClass, repo: repo)
+            } catch is CancellationError {
                 await MainActor.run {
-                    updateDownloadState(for: modelInfo.modelClass, state: state)
+                    self.updateDownloadState(for: modelClass, state: .notStarted)
                 }
-                
-                try? await Task.sleep(nanoseconds: 200_000_000) // 200ms per step
+            } catch {
+                await MainActor.run {
+                    self.updateDownloadState(for: modelClass, state: .failed(error: error.localizedDescription))
+                }
             }
-            
-            // Verify
-            await MainActor.run {
-                updateDownloadState(for: modelInfo.modelClass, state: .verifying)
-            }
-            
-            try? await Task.sleep(nanoseconds: 500_000_000) // 500ms verification
-            
-            // Complete
-            await MainActor.run {
-                markModelAsDownloaded(modelInfo.modelClass)
-                updateDownloadState(for: modelInfo.modelClass, state: .completed)
+            _ = await MainActor.run {
+                self.downloadTasks.removeValue(forKey: modelClass)
             }
         }
     }
@@ -182,10 +172,23 @@ public final class ModelsViewModel {
         downloadTasks[modelClass]?.cancel()
         downloadTasks.removeValue(forKey: modelClass)
         updateDownloadState(for: modelClass, state: .notStarted)
+        let modelPath = modelsDirectory().appendingPathComponent(modelClass.rawValue)
+        try? FileManager.default.removeItem(at: modelPath)
     }
     
     public func deleteModel(_ modelClass: ModelClass) {
-        // In real implementation, delete from disk
+        let modelPath = modelsDirectory().appendingPathComponent(modelClass.rawValue)
+        do {
+            if FileManager.default.fileExists(atPath: modelPath.path) {
+                try FileManager.default.removeItem(at: modelPath)
+            }
+        } catch {
+            if let index = availableModels.firstIndex(where: { $0.modelClass == modelClass }) {
+                availableModels[index].downloadState = .failed(error: error.localizedDescription)
+            }
+            return
+        }
+        
         if let index = availableModels.firstIndex(where: { $0.modelClass == modelClass }) {
             availableModels[index].isDownloaded = false
             availableModels[index].localPath = nil
@@ -238,6 +241,97 @@ public final class ModelsViewModel {
     public func openModelLocation(_ modelClass: ModelClass) {
         let modelPath = modelsDirectory().appendingPathComponent(modelClass.rawValue)
         NSWorkspace.shared.activateFileViewerSelecting([modelPath])
+    }
+    
+    private func performModelDownload(modelClass: ModelClass, repo: String) async throws {
+        let modelPath = modelsDirectory().appendingPathComponent(modelClass.rawValue)
+        try? FileManager.default.removeItem(at: modelPath)
+        try FileManager.default.createDirectory(at: modelPath, withIntermediateDirectories: true)
+        
+        let files = try await fetchDownloadableFiles(repo: repo)
+        guard !files.isEmpty else {
+            throw URLError(.fileDoesNotExist)
+        }
+        
+        let totalFiles = files.count
+        for (index, file) in files.enumerated() {
+            try Task.checkCancellation()
+            let fileURL = huggingFaceResolveURL(repo: repo, file: file)
+            let destination = modelPath.appendingPathComponent(file)
+            try FileManager.default.createDirectory(
+                at: destination.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let (data, response) = try await URLSession.shared.data(from: fileURL)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                throw URLError(.badServerResponse)
+            }
+            try data.write(to: destination, options: .atomic)
+            
+            let progress = Double(index + 1) / Double(totalFiles)
+            await MainActor.run {
+                self.updateDownloadState(
+                    for: modelClass,
+                    state: .downloading(
+                        progress: progress,
+                        bytesDownloaded: Int64(index + 1),
+                        totalBytes: Int64(totalFiles)
+                    )
+                )
+            }
+        }
+        
+        await MainActor.run {
+            self.updateDownloadState(for: modelClass, state: .verifying)
+        }
+        try validateDownloadedModel(at: modelPath)
+        await MainActor.run {
+            self.markModelAsDownloaded(modelClass)
+            self.updateDownloadState(for: modelClass, state: .completed)
+        }
+    }
+    
+    private func fetchDownloadableFiles(repo: String) async throws -> [String] {
+        let apiURL = URL(string: "https://huggingface.co/api/models/\(repo)")!
+        let (data, response) = try await URLSession.shared.data(from: apiURL)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        let model = try JSONDecoder().decode(HuggingFaceModelResponse.self, from: data)
+        let allowedExtensions: Set<String> = ["json", "txt", "model", "safetensors", "tiktoken"]
+        let disallowedPrefixes = [".", "README", "LICENSE", "NOTICE", ".gitattributes"]
+        
+        let candidates = model.siblings
+            .map(\.rfilename)
+            .filter { name in
+                !disallowedPrefixes.contains { name.hasPrefix($0) }
+                && allowedExtensions.contains(URL(fileURLWithPath: name).pathExtension.lowercased())
+            }
+        
+        if candidates.contains("config.json") {
+            return candidates
+        }
+        return []
+    }
+    
+    private func huggingFaceResolveURL(repo: String, file: String) -> URL {
+        URL(string: "https://huggingface.co/\(repo)/resolve/main/\(file)")!
+    }
+    
+    private func validateDownloadedModel(at modelPath: URL) throws {
+        let configPath = modelPath.appendingPathComponent("config.json")
+        guard FileManager.default.fileExists(atPath: configPath.path) else {
+            throw URLError(.fileDoesNotExist)
+        }
+        guard let files = try? FileManager.default.contentsOfDirectory(at: modelPath, includingPropertiesForKeys: nil) else {
+            throw URLError(.cannotOpenFile)
+        }
+        let hasWeights = files.contains { file in
+            file.pathExtension.lowercased() == "safetensors" || file.pathExtension.lowercased() == "bin"
+        }
+        guard hasWeights else {
+            throw URLError(.cannotDecodeRawData)
+        }
     }
     
     // MARK: - Settings Management

@@ -276,13 +276,15 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
             url: url,
             callbackURLScheme: callbackURLScheme
         ) { [weak self] callbackURL, error in
-            Task { @MainActor in
+            Task { [weak self] in
                 guard let self else { return }
-                await self.handleWebAuthenticationResult(
-                    callbackURL: callbackURL,
-                    error: error,
-                    provider: provider
-                )
+                await MainActor.run {
+                    self.handleWebAuthenticationResult(
+                        callbackURL: callbackURL,
+                        error: error,
+                        provider: provider
+                    )
+                }
             }
         }
         
@@ -296,7 +298,7 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
         callbackURL: URL?,
         error: Error?,
         provider: CloudProvider
-    ) async {
+    ) {
         isAuthenticating = false
         currentAuthenticatingProvider = nil
         
@@ -315,7 +317,9 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
             return
         }
         
-        await handleAuthenticationCallback(url: callbackURL, provider: provider)
+        Task { @MainActor in
+            await handleAuthenticationCallback(url: callbackURL, provider: provider)
+        }
     }
     
     private func handleAuthenticationCallback(url: URL, provider: CloudProvider) async {

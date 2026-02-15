@@ -10,6 +10,7 @@ public struct MainWindowView: View {
     @State private var selectedTab: AppTab? = .chat
     @State private var showingOnboarding = false
     @State private var showingSettings = false
+    @State private var onboardingInitialStep: OnboardingViewModel.OnboardingStep = .welcome
     
     // UI State for the Chat
     @State private var chatMessages: [ChatMessage] = [
@@ -51,7 +52,7 @@ public struct MainWindowView: View {
                 .environmentObject(coordinator)
         }
         .sheet(isPresented: $showingOnboarding) {
-            OnboardingView()
+            OnboardingView(initialStep: onboardingInitialStep)
         }
         .task {
             if !UserDefaults.standard.bool(forKey: AppDefaultsKeys.onboardingCompleted) {
@@ -63,6 +64,11 @@ public struct MainWindowView: View {
             clearConversation()
         }
         .onReceive(NotificationCenter.default.publisher(for: .badgerShowOnboardingRequested)) { _ in
+            onboardingInitialStep = .welcome
+            showingOnboarding = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .badgerShowCloudSSORequested)) { _ in
+            onboardingInitialStep = .cloudSSO
             showingOnboarding = true
         }
     }

@@ -11,6 +11,7 @@ public enum AppDefaultsKeys {
 extension Notification.Name {
     static let badgerNewConversationRequested = Notification.Name("badger.newConversationRequested")
     static let badgerShowOnboardingRequested = Notification.Name("badger.showOnboardingRequested")
+    static let badgerShowCloudSSORequested = Notification.Name("badger.showCloudSSORequested")
 }
 
 // MARK: - BadgerApp Entry Point & API

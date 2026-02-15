@@ -6,10 +6,14 @@ import BadgerRuntime
 // MARK: - Onboarding View
 
 public struct OnboardingView: View {
-    @StateObject private var viewModel = OnboardingViewModel()
+    @StateObject private var viewModel: OnboardingViewModel
+    private let initialStep: OnboardingViewModel.OnboardingStep
     @Environment(\.dismiss) private var dismiss
     
-    public init() {}
+    public init(initialStep: OnboardingViewModel.OnboardingStep = .welcome) {
+        self.initialStep = initialStep
+        _viewModel = StateObject(wrappedValue: OnboardingViewModel())
+    }
     
     public var body: some View {
         VStack(spacing: 0) {
@@ -57,6 +61,11 @@ public struct OnboardingView: View {
                 Text(suggestion)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+        }
+        .onAppear {
+            if viewModel.currentStep != initialStep {
+                viewModel.skipToStep(initialStep)
             }
         }
     }
