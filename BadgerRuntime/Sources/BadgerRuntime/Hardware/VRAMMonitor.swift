@@ -205,7 +205,7 @@ public actor VRAMMonitor {
         
         monitoringTask = Task {
             while !Task.isCancelled {
-                let status = await getCurrentStatus()
+                let status = getCurrentStatus()
                 callback(status)
                 
                 try? await Task.sleep(nanoseconds: UInt64(self.updateInterval * 1_000_000_000))

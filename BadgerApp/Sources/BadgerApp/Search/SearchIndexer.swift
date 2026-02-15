@@ -149,7 +149,7 @@ public actor SearchIndexer {
         )
         
         // Add to in-memory cache
-        await addToRecentItems(item)
+        addToRecentItems(item)
         
         // Index to CoreSpotlight
         do {
@@ -197,7 +197,9 @@ public actor SearchIndexer {
         limit: Int = 20
     ) async throws -> [SearchResult] {
         let queryString = Self.buildSearchQuery(query: query)
-        let searchQuery = CSSearchQuery(queryString: queryString, attributes: ["title", "contentDescription", "keywords"])
+        let queryContext = CSSearchQueryContext()
+        queryContext.fetchAttributes = ["title", "contentDescription", "keywords"]
+        let searchQuery = CSSearchQuery(queryString: queryString, queryContext: queryContext)
         
         // Thread-safe accumulator
         let accumulator = ResultAccumulator(limit: limit)

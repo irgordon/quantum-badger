@@ -303,11 +303,9 @@ extension CloudInferenceService {
                     }
                     
                     // Build request with streaming headers
-                    var streamConfig = configuration
-                    // Enable streaming
                     let request = try buildStreamingRequest(
                         messages: messages,
-                        configuration: streamConfig,
+                        configuration: configuration,
                         token: token
                     )
                     

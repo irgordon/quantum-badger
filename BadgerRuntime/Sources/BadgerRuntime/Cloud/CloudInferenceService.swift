@@ -345,7 +345,7 @@ public actor CloudInferenceService {
         
         do {
             let task = Task<Data, Error> {
-                defer { Task { await self.removeTask(requestId) } }
+                defer { Task { self.removeTask(requestId) } }
                 
                 let request = try self.buildRequest(
                     messages: sanitizedMessages,
@@ -372,7 +372,7 @@ public actor CloudInferenceService {
                 }
             }
             
-            await self.addTask(task, id: requestId)
+            self.addTask(task, id: requestId)
             let data = try await task.value
             
             let requestTime = Date().timeIntervalSince(startTime)

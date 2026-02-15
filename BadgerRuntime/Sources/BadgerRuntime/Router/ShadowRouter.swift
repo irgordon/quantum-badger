@@ -366,7 +366,7 @@ public actor ShadowRouter {
         async let vramStatus = vramMonitor.getCurrentStatus()
         async let securityPolicy = policyManager.getPolicy()
         
-        let vram = try await vramStatus
+        let vram = await vramStatus
         let policy = await securityPolicy
         
         let physicalMemory = ProcessInfo.processInfo.physicalMemory

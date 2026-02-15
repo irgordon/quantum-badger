@@ -158,7 +158,7 @@ public actor WebBrowserService {
         let taskId = UUID()
         
         let task = Task<FetchedContent, Error> {
-            defer { Task { await self.removeTask(taskId) } }
+            defer { Task { self.removeTask(taskId) } }
             
             let (data, response) = try await performFetch(url: url)
             
@@ -205,7 +205,7 @@ public actor WebBrowserService {
             )
         }
         
-        await addTask(task, id: taskId)
+        addTask(task, id: taskId)
         
         do {
             return try await task.value

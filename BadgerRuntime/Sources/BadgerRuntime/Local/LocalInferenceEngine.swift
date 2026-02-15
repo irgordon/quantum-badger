@@ -202,7 +202,7 @@ public actor LocalInferenceEngine {
             quantization: quantization
         )
         
-        guard try await vramMonitor.canFitModel(requiredBytes: requiredMemory) else {
+        guard await vramMonitor.canFitModel(requiredBytes: requiredMemory) else {
             throw LocalInferenceError.insufficientVRAM
         }
         

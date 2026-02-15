@@ -393,7 +393,8 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
 
 extension OnboardingViewModel: ASWebAuthenticationPresentationContextProviding {
     nonisolated public func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        // Return the key window
-        return NSApplication.shared.windows.first { $0.isKeyWindow } ?? NSWindow()
+        MainActor.assumeIsolated {
+            NSApplication.shared.windows.first { $0.isKeyWindow } ?? NSWindow()
+        }
     }
 }
