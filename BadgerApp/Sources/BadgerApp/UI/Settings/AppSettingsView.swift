@@ -12,6 +12,7 @@ public struct AppSettingsView: View {
     public enum SettingsSection: String, CaseIterable, Identifiable {
         case health = "System Health"
         case general = "General"
+        case localModels = "Local Models"
         case cloudAccounts = "Cloud Accounts"
         case audit = "Audit Logs"
         case privacy = "Privacy & Security"
@@ -23,6 +24,7 @@ public struct AppSettingsView: View {
             switch self {
             case .health: return "heart.text.square.fill"
             case .general: return "gear"
+            case .localModels: return "cpu.fill"
             case .cloudAccounts: return "cloud.fill"
             case .audit: return "list.bullet.rectangle.portrait"
             case .privacy: return "hand.raised.fill"
@@ -43,7 +45,7 @@ public struct AppSettingsView: View {
                 }
                 
                 Section("Configuration") {
-                    ForEach([SettingsSection.general, .cloudAccounts, .audit, .privacy, .advanced], id: \.self) { section in
+                    ForEach([SettingsSection.general, .localModels, .cloudAccounts, .audit, .privacy, .advanced], id: \.self) { section in
                         NavigationLink(value: section) {
                             Label(section.rawValue, systemImage: section.icon)
                         }
@@ -58,6 +60,7 @@ public struct AppSettingsView: View {
                     switch section {
                     case .health: HealthDashboardView()
                     case .general: GeneralSettingsView()
+                    case .localModels: LocalModelConfigurationView()
                     case .cloudAccounts: CloudAccountsSettingsView()
                     case .audit: AuditLogsSettingsView()
                     case .privacy: PrivacySettingsView()
@@ -69,20 +72,24 @@ public struct AppSettingsView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .symbolRenderingMode(.hierarchical)
-                            .foregroundStyle(.secondary)
-                            .font(.title2)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Close Settings")
+                    EmptyView()
                 }
             }
         }
-        .frame(minWidth: 800, minHeight: 550)
+        .frame(minWidth: 980, minHeight: 680)
+        .overlay(alignment: .topTrailing) {
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(.secondary)
+                    .font(.title2)
+                    .padding(12)
+            }
+            .buttonStyle(.plain)
+            .help("Close Settings")
+        }
     }
 }
 
@@ -508,6 +515,143 @@ struct AuditLogsSettingsView: View {
                 }
             }
         }
+    }
+}
+
+struct LocalModelConfigurationView: View {
+    @AppStorage("activeLocalModelPath") private var activeLocalModelPath = ""
+    @State private var localModelDirectories: [URL] = []
+    @State private var statusMessage = "No local model selected"
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Local Model Configuration")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                Spacer()
+                Button("Refresh", action: refreshModelList)
+            }
+            
+            HStack(spacing: 8) {
+                Image(systemName: "cpu")
+                Text(activeModelDisplayName)
+                    .font(.subheadline)
+                Spacer()
+            }
+            .padding(8)
+            .background(Color(nsColor: .controlBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            
+            HStack {
+                Button("Add Local Model Folder", action: importModelDirectory)
+                    .buttonStyle(.borderedProminent)
+                Button("Open Models Folder", action: openModelsFolder)
+            }
+            
+            List(localModelDirectories, id: \.path) { modelURL in
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(modelURL.lastPathComponent)
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                        Text(modelURL.path)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    if activeLocalModelPath == modelURL.path {
+                        Text("Active")
+                            .font(.caption)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.green.opacity(0.2))
+                            .foregroundStyle(.green)
+                            .clipShape(Capsule())
+                    } else {
+                        Button("Set Active") {
+                            activeLocalModelPath = modelURL.path
+                            statusMessage = "Active model set to \(modelURL.lastPathComponent)"
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+            }
+            
+            Text(statusMessage)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding()
+        .task { refreshModelList() }
+    }
+    
+    private var modelsRootDirectory: URL {
+        let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first!
+        return appSupport.appendingPathComponent("QuantumBadger/Models")
+    }
+    
+    private var activeModelDisplayName: String {
+        if activeLocalModelPath.isEmpty {
+            return "Active model: None"
+        }
+        return "Active model: \(URL(fileURLWithPath: activeLocalModelPath).lastPathComponent)"
+    }
+    
+    private func refreshModelList() {
+        try? FileManager.default.createDirectory(at: modelsRootDirectory, withIntermediateDirectories: true)
+        let contents = (try? FileManager.default.contentsOfDirectory(
+            at: modelsRootDirectory,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+        localModelDirectories = contents.filter { url in
+            var isDirectory: ObjCBool = false
+            let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+            guard exists, isDirectory.boolValue else { return false }
+            return FileManager.default.fileExists(atPath: url.appendingPathComponent("config.json").path)
+        }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        
+        if localModelDirectories.isEmpty {
+            statusMessage = "No local model folders detected in \(modelsRootDirectory.path)"
+        }
+    }
+    
+    private func importModelDirectory() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Add Model"
+        
+        guard panel.runModal() == .OK, let source = panel.url else {
+            return
+        }
+        
+        let sourceConfig = source.appendingPathComponent("config.json")
+        guard FileManager.default.fileExists(atPath: sourceConfig.path) else {
+            statusMessage = "Selected folder is missing config.json"
+            return
+        }
+        
+        let destination = modelsRootDirectory.appendingPathComponent(source.lastPathComponent)
+        do {
+            try? FileManager.default.removeItem(at: destination)
+            try FileManager.default.copyItem(at: source, to: destination)
+            statusMessage = "Imported model folder \(source.lastPathComponent)"
+            refreshModelList()
+        } catch {
+            statusMessage = "Import failed: \(error.localizedDescription)"
+        }
+    }
+    
+    private func openModelsFolder() {
+        try? FileManager.default.createDirectory(at: modelsRootDirectory, withIntermediateDirectories: true)
+        NSWorkspace.shared.activateFileViewerSelecting([modelsRootDirectory])
     }
 }
 

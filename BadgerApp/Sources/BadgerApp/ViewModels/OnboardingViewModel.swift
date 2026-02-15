@@ -231,8 +231,10 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
     }
     
     private func authenticateWithOpenAI() {
-        // OpenAI OAuth flow
-        let clientId = "quantum-badger-client"
+        guard let clientId = configuredOAuthClientID(for: .openAI) else {
+            showError(.authenticationFailed(provider: .openAI, reason: "OpenAI SSO is not configured. Add OPENAI_OAUTH_CLIENT_ID to app configuration."))
+            return
+        }
         let redirectUri = "com.quantumbadger://oauth/callback"
         let scope = "api"
         
@@ -245,8 +247,10 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
     }
     
     private func authenticateWithAnthropic() {
-        // Anthropic OAuth flow
-        let clientId = "quantum-badger-client"
+        guard let clientId = configuredOAuthClientID(for: .anthropic) else {
+            showError(.authenticationFailed(provider: .anthropic, reason: "Anthropic SSO is not configured. Add ANTHROPIC_OAUTH_CLIENT_ID to app configuration."))
+            return
+        }
         let redirectUri = "com.quantumbadger://oauth/callback"
         
         guard let authURL = URL(string: "https://console.anthropic.com/oauth/authorize?client_id=\(clientId)&redirect_uri=\(redirectUri)&response_type=code") else {
@@ -258,8 +262,10 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
     }
     
     private func authenticateWithGoogle() {
-        // Google OAuth flow
-        let clientId = "quantum-badger-client"
+        guard let clientId = configuredOAuthClientID(for: .google) else {
+            showError(.authenticationFailed(provider: .google, reason: "Google SSO is not configured. Add GOOGLE_OAUTH_CLIENT_ID to app configuration."))
+            return
+        }
         let redirectUri = "com.quantumbadger://oauth/callback"
         let scope = "https://www.googleapis.com/auth/generative-language.retriever"
         
@@ -298,6 +304,28 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
                 )
             }
         }
+    }
+    
+    private func configuredOAuthClientID(for provider: CloudProvider) -> String? {
+        let key: String
+        switch provider {
+        case .openAI:
+            key = "OPENAI_OAUTH_CLIENT_ID"
+        case .anthropic:
+            key = "ANTHROPIC_OAUTH_CLIENT_ID"
+        case .google:
+            key = "GOOGLE_OAUTH_CLIENT_ID"
+        case .applePCC:
+            return nil
+        }
+        guard let value = Bundle.main.object(forInfoDictionaryKey: key) as? String else {
+            return nil
+        }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != "quantum-badger-client" else {
+            return nil
+        }
+        return trimmed
     }
     
     private func handleWebAuthenticationResult(

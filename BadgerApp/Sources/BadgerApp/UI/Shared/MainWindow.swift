@@ -48,7 +48,7 @@ public struct MainWindowView: View {
         .frame(minWidth: 1000, minHeight: 700)
         .sheet(isPresented: $showingSettings) {
             AppSettingsView()
-                .frame(minWidth: 700, minHeight: 500)
+                .frame(minWidth: 980, minHeight: 680)
                 .environmentObject(coordinator)
         }
         .sheet(isPresented: $showingOnboarding) {

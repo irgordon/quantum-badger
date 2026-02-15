@@ -213,7 +213,7 @@ public struct QuantumBadgerApp: App {
         // Settings Window
         Settings {
             AppSettingsView()
-                .frame(minWidth: 700, minHeight: 500)
+                .frame(minWidth: 980, minHeight: 680)
                 .environmentObject(coordinator)
         }
     }
