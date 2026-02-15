@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import BadgerCore
 import BadgerRuntime
 
@@ -315,6 +316,7 @@ struct AdvancedSettingsView: View {
             
             Section("Inference Params") {
                 Stepper("Context Window: \(contextWindow)", value: $contextWindow, in: 2048...32000, step: 1024)
+                Button("Open Models Folder", action: openModelsFolder)
             }
             
             Section("Danger Zone") {
@@ -323,6 +325,16 @@ struct AdvancedSettingsView: View {
             }
         }
         .formStyle(.grouped)
+    }
+    
+    private func openModelsFolder() {
+        let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first!
+        let modelsDirectory = appSupport.appendingPathComponent("QuantumBadger/Models")
+        try? FileManager.default.createDirectory(at: modelsDirectory, withIntermediateDirectories: true)
+        NSWorkspace.shared.activateFileViewerSelecting([modelsDirectory])
     }
 }
 

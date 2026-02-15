@@ -6,7 +6,7 @@ import BadgerRuntime
 // MARK: - Onboarding View
 
 public struct OnboardingView: View {
-    @State private var viewModel = OnboardingViewModel()
+    @StateObject private var viewModel = OnboardingViewModel()
     @Environment(\.dismiss) private var dismiss
     
     public init() {}

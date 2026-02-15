@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import AppKit
 import BadgerCore
 import BadgerRuntime
 
@@ -193,8 +194,24 @@ public final class ModelsViewModel {
     }
     
     private func checkDownloadedModels() async {
-        // Check which models exist in the models directory
-        // For now, all marked as not downloaded
+        let directory = modelsDirectory()
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        
+        for index in availableModels.indices {
+            let modelClass = availableModels[index].modelClass
+            let modelPath = directory.appendingPathComponent(modelClass.rawValue)
+            var isDirectory: ObjCBool = false
+            let exists = FileManager.default.fileExists(atPath: modelPath.path, isDirectory: &isDirectory)
+            if exists, isDirectory.boolValue {
+                availableModels[index].isDownloaded = true
+                availableModels[index].localPath = modelPath
+                availableModels[index].downloadState = .completed
+            } else {
+                availableModels[index].isDownloaded = false
+                availableModels[index].localPath = nil
+                availableModels[index].downloadState = .notStarted
+            }
+        }
     }
     
     private func markModelAsDownloaded(_ modelClass: ModelClass) {
@@ -216,6 +233,11 @@ public final class ModelsViewModel {
             in: .userDomainMask
         ).first!
         return appSupport.appendingPathComponent("QuantumBadger/Models")
+    }
+    
+    public func openModelLocation(_ modelClass: ModelClass) {
+        let modelPath = modelsDirectory().appendingPathComponent(modelClass.rawValue)
+        NSWorkspace.shared.activateFileViewerSelecting([modelPath])
     }
     
     // MARK: - Settings Management

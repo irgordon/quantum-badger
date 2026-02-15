@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import BadgerCore
 import BadgerRuntime
 
@@ -346,6 +347,16 @@ struct ModelDownloadRow: View {
     let onCancel: () -> Void
     let onDelete: () -> Void
     
+    private func openModelInFinder() {
+        let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first!
+        let modelsDirectory = appSupport.appendingPathComponent("QuantumBadger/Models")
+        let modelPath = modelsDirectory.appendingPathComponent(modelInfo.modelClass.rawValue)
+        NSWorkspace.shared.activateFileViewerSelecting([modelPath])
+    }
+    
     var body: some View {
         HStack(spacing: 16) {
             // Model Icon
@@ -408,7 +419,7 @@ struct ModelDownloadRow: View {
             VStack(alignment: .trailing, spacing: 8) {
                 if modelInfo.isDownloaded {
                     Menu {
-                        Button("Show in Finder", action: {})
+                        Button("Show in Finder", action: openModelInFinder)
                         Divider()
                         Button("Delete", role: .destructive, action: onDelete)
                     } label: {

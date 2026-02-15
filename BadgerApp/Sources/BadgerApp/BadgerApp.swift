@@ -3,6 +3,16 @@ import SwiftUI
 import BadgerCore
 import BadgerRuntime
 
+public enum AppDefaultsKeys {
+    public static let onboardingCompleted = "onboardingCompleted"
+    public static let legacyHasCompletedOnboarding = "hasCompletedOnboarding"
+}
+
+extension Notification.Name {
+    static let badgerNewConversationRequested = Notification.Name("badger.newConversationRequested")
+    static let badgerShowOnboardingRequested = Notification.Name("badger.showOnboardingRequested")
+}
+
 // MARK: - BadgerApp Entry Point & API
 
 public enum BadgerApp {
@@ -128,7 +138,7 @@ public struct QuantumBadgerApp: App {
     @StateObject private var coordinator = AppCoordinator.shared
     
     /// Track if user has completed onboarding
-    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+    @AppStorage(AppDefaultsKeys.onboardingCompleted) private var hasCompletedOnboarding = false
     
     public init() {}
     
@@ -163,9 +173,13 @@ public struct QuantumBadgerApp: App {
             
             CommandMenu("Quantum Badger") {
                 Button("New Conversation") {
-                    // Reset conversation - would need ViewModel reference
+                    NotificationCenter.default.post(name: .badgerNewConversationRequested, object: nil)
                 }
                 .keyboardShortcut("n", modifiers: .command)
+                
+                Button("Run Onboarding Again") {
+                    NotificationCenter.default.post(name: .badgerShowOnboardingRequested, object: nil)
+                }
                 
                 Button("Process Selected Text") {
                     // Process from clipboard

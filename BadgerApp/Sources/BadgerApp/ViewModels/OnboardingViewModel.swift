@@ -277,26 +277,12 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
             callbackURLScheme: callbackURLScheme
         ) { [weak self] callbackURL, error in
             Task { @MainActor in
-                self?.isAuthenticating = false
-                self?.currentAuthenticatingProvider = nil
-                
-                if let error = error {
-                    let nsError = error as NSError
-                    if nsError.code == ASWebAuthenticationSessionError.canceledLogin.rawValue {
-                        self?.showError(.cancelled)
-                    } else {
-                        self?.showError(.authenticationFailed(provider: provider, reason: error.localizedDescription))
-                    }
-                    return
-                }
-                
-                guard let callbackURL = callbackURL else {
-                    self?.showError(.authenticationFailed(provider: provider, reason: "No callback URL"))
-                    return
-                }
-                
-                // Extract token from callback URL
-                await self?.handleAuthenticationCallback(url: callbackURL, provider: provider)
+                guard let self else { return }
+                await self.handleWebAuthenticationResult(
+                    callbackURL: callbackURL,
+                    error: error,
+                    provider: provider
+                )
             }
         }
         
@@ -304,6 +290,32 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
         webAuthSession?.prefersEphemeralWebBrowserSession = true
         
         webAuthSession?.start()
+    }
+    
+    private func handleWebAuthenticationResult(
+        callbackURL: URL?,
+        error: Error?,
+        provider: CloudProvider
+    ) async {
+        isAuthenticating = false
+        currentAuthenticatingProvider = nil
+        
+        if let error {
+            let nsError = error as NSError
+            if nsError.code == ASWebAuthenticationSessionError.canceledLogin.rawValue {
+                showError(.cancelled)
+            } else {
+                showError(.authenticationFailed(provider: provider, reason: error.localizedDescription))
+            }
+            return
+        }
+        
+        guard let callbackURL else {
+            showError(.authenticationFailed(provider: provider, reason: "No callback URL"))
+            return
+        }
+        
+        await handleAuthenticationCallback(url: callbackURL, provider: provider)
     }
     
     private func handleAuthenticationCallback(url: URL, provider: CloudProvider) async {
@@ -337,7 +349,9 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
     
     public func completeOnboarding() {
         // Save settings
-        UserDefaults.standard.set(true, forKey: "onboardingCompleted")
+        UserDefaults.standard.set(true, forKey: AppDefaultsKeys.onboardingCompleted)
+        // Legacy compatibility for older app gating key.
+        UserDefaults.standard.set(true, forKey: AppDefaultsKeys.legacyHasCompletedOnboarding)
         UserDefaults.standard.set(enableSafeModeByDefault, forKey: "safeModeDefault")
         
         // Start model downloads if selected
@@ -353,11 +367,17 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
     }
     
     private func checkOnboardingStatus() {
-        let completed = UserDefaults.standard.bool(forKey: "onboardingCompleted")
+        let defaults = UserDefaults.standard
+        let completed = defaults.bool(forKey: AppDefaultsKeys.onboardingCompleted)
+            || defaults.bool(forKey: AppDefaultsKeys.legacyHasCompletedOnboarding)
+        if completed {
+            defaults.set(true, forKey: AppDefaultsKeys.onboardingCompleted)
+            defaults.set(true, forKey: AppDefaultsKeys.legacyHasCompletedOnboarding)
+        }
         onboardingCompleted = completed
         
         if completed {
-            hasAcceptedPrivacyPolicy = UserDefaults.standard.bool(forKey: "privacyPolicyAccepted")
+            hasAcceptedPrivacyPolicy = defaults.bool(forKey: "privacyPolicyAccepted")
         }
     }
     
@@ -391,10 +411,25 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
 
 // MARK: - ASWebAuthenticationPresentationContextProviding
 
+@MainActor
+private enum WindowFinder {
+    static var currentAnchor: ASPresentationAnchor {
+        NSApplication.shared.windows.first { $0.isKeyWindow } ?? NSWindow()
+    }
+}
+
 extension OnboardingViewModel: ASWebAuthenticationPresentationContextProviding {
     nonisolated public func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        MainActor.assumeIsolated {
-            NSApplication.shared.windows.first { $0.isKeyWindow } ?? NSWindow()
+        if Thread.isMainThread {
+            return MainActor.assumeIsolated {
+                WindowFinder.currentAnchor
+            }
+        } else {
+            return DispatchQueue.main.sync {
+                MainActor.assumeIsolated {
+                    WindowFinder.currentAnchor
+                }
+            }
         }
     }
 }
