@@ -15,6 +15,7 @@ public enum KeyManagerError: Error, Sendable {
     case secureEnclaveNotAvailable
     case biometricsNotAvailable
     case keyGenerationFailed
+    case cryptoOperationFailed(String)
 }
 
 // MARK: - Supported AI Providers
@@ -50,17 +51,146 @@ public protocol CoreFoundationTypeBridge {
     static var typeID: CFTypeID { get }
 }
 
+public extension CoreFoundationTypeBridge {
+    static func cast(_ object: AnyObject) -> Value? {
+        guard CFGetTypeID(object) == typeID else {
+            return nil
+        }
+        return unsafeDowncast(object, to: Value.self)
+    }
+}
+
 public enum SecKeyTypeBridge: CoreFoundationTypeBridge {
     public typealias Value = SecKey
     public static var typeID: CFTypeID { SecKeyGetTypeID() }
 }
 
-public extension AnyObject {
-    func bridgedCFType<T: CoreFoundationTypeBridge>(_ bridgeType: T.Type) -> T.Value? {
-        guard CFGetTypeID(self) == bridgeType.typeID else {
-            return nil
+// MARK: - Keychain Query Factory
+
+private struct KeychainQueryFactory {
+    let accessGroup: String?
+    
+    func tokenStoreQuery(provider: AIProvider, tokenData: Data) -> [String: Any] {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: provider.serviceName,
+            kSecAttrAccount as String: "api_token",
+            kSecValueData as String: tokenData,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+            kSecUseDataProtectionKeychain as String: true
+        ]
+        if let accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
         }
-        return unsafeDowncast(self, to: T.Value.self)
+        return query
+    }
+    
+    func tokenRetrieveQuery(provider: AIProvider) -> [String: Any] {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: provider.serviceName,
+            kSecAttrAccount as String: "api_token",
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecUseDataProtectionKeychain as String: true
+        ]
+        if let accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
+        return query
+    }
+    
+    func tokenDeleteQuery(provider: AIProvider) -> [String: Any] {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: provider.serviceName,
+            kSecAttrAccount as String: "api_token",
+            kSecUseDataProtectionKeychain as String: true
+        ]
+        if let accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
+        return query
+    }
+    
+    func tokenExistsQuery(provider: AIProvider) -> [String: Any] {
+        var query = tokenDeleteQuery(provider: provider)
+        query[kSecReturnData as String] = false
+        return query
+    }
+    
+    func secureEnclaveAvailabilityAttributes() -> [String: Any] {
+        [
+            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
+            kSecAttrKeySizeInBits as String: 256,
+            kSecAttrTokenID as String: kSecAttrTokenIDSecureEnclave,
+            kSecPrivateKeyAttrs as String: [
+                kSecAttrIsPermanent as String: false
+            ]
+        ]
+    }
+    
+    func secureEnclaveGenerationAttributes(tag: Data) -> [String: Any] {
+        [
+            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
+            kSecAttrKeySizeInBits as String: 256,
+            kSecAttrTokenID as String: kSecAttrTokenIDSecureEnclave,
+            kSecPrivateKeyAttrs as String: [
+                kSecAttrIsPermanent as String: true,
+                kSecAttrApplicationTag as String: tag,
+                kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+            ]
+        ]
+    }
+    
+    func keyPairQuery(tag: Data) -> [String: Any] {
+        [
+            kSecClass as String: kSecClassKey,
+            kSecAttrApplicationTag as String: tag,
+            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
+            kSecReturnRef as String: true
+        ]
+    }
+    
+    func keyPairDeleteQuery(tag: Data) -> [String: Any] {
+        [
+            kSecClass as String: kSecClassKey,
+            kSecAttrApplicationTag as String: tag,
+            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom
+        ]
+    }
+}
+
+// MARK: - Cipher Mechanism
+
+private enum Cipher {
+    static let algorithm: SecKeyAlgorithm = .eciesEncryptionCofactorX963SHA256AESGCM
+    
+    typealias Operation = (
+        SecKey,
+        SecKeyAlgorithm,
+        CFData,
+        UnsafeMutablePointer<Unmanaged<CFError>?>?
+    ) -> CFData?
+    
+    static func perform(
+        _ operation: Operation,
+        on key: SecKey,
+        data: Data
+    ) throws -> Data {
+        var error: Unmanaged<CFError>?
+        guard let resultData = operation(key, algorithm, data as CFData, &error) else {
+            throw resolveFailure(error)
+        }
+        return resultData as Data
+    }
+    
+    private static func resolveFailure(_ error: Unmanaged<CFError>?) -> KeyManagerError {
+        guard let cfError = error?.takeRetainedValue() else {
+            return .invalidData
+        }
+        let description = CFErrorCopyDescription(cfError) as String
+        return .cryptoOperationFailed(description)
     }
 }
 
@@ -71,14 +201,14 @@ public actor KeyManager {
     
     // MARK: - Properties
     
-    private let accessGroup: String?
+    private let factory: KeychainQueryFactory
     
     // MARK: - Initialization
     
     /// Initialize the KeyManager
     /// - Parameter accessGroup: Optional shared access group for Keychain items
     public init(accessGroup: String? = nil) {
-        self.accessGroup = accessGroup
+        self.factory = KeychainQueryFactory(accessGroup: accessGroup)
     }
     
     // MARK: - API Token Management
@@ -95,18 +225,7 @@ public actor KeyManager {
         // First, delete any existing token for this provider
         try? await deleteToken(for: provider)
         
-        var query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: provider.serviceName,
-            kSecAttrAccount as String: "api_token",
-            kSecValueData as String: tokenData,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-            kSecUseDataProtectionKeychain as String: true
-        ]
-        
-        if let accessGroup = accessGroup {
-            query[kSecAttrAccessGroup as String] = accessGroup
-        }
+        let query = factory.tokenStoreQuery(provider: provider, tokenData: tokenData)
         
         let status = SecItemAdd(query as CFDictionary, nil)
         
@@ -119,18 +238,7 @@ public actor KeyManager {
     /// - Parameter provider: The AI provider to retrieve the token for
     /// - Returns: The stored API token
     public func retrieveToken(for provider: AIProvider) async throws -> String {
-        var query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: provider.serviceName,
-            kSecAttrAccount as String: "api_token",
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-            kSecUseDataProtectionKeychain as String: true
-        ]
-        
-        if let accessGroup = accessGroup {
-            query[kSecAttrAccessGroup as String] = accessGroup
-        }
+        let query = factory.tokenRetrieveQuery(provider: provider)
         
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
@@ -153,16 +261,7 @@ public actor KeyManager {
     /// Delete the stored API token for a specific provider
     /// - Parameter provider: The AI provider to delete the token for
     public func deleteToken(for provider: AIProvider) async throws {
-        var query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: provider.serviceName,
-            kSecAttrAccount as String: "api_token",
-            kSecUseDataProtectionKeychain as String: true
-        ]
-        
-        if let accessGroup = accessGroup {
-            query[kSecAttrAccessGroup as String] = accessGroup
-        }
+        let query = factory.tokenDeleteQuery(provider: provider)
         
         let status = SecItemDelete(query as CFDictionary)
         
@@ -175,17 +274,7 @@ public actor KeyManager {
     /// - Parameter provider: The AI provider to check
     /// - Returns: True if a token exists
     public func hasToken(for provider: AIProvider) async -> Bool {
-        var query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: provider.serviceName,
-            kSecAttrAccount as String: "api_token",
-            kSecUseDataProtectionKeychain as String: true,
-            kSecReturnData as String: false
-        ]
-        
-        if let accessGroup = accessGroup {
-            query[kSecAttrAccessGroup as String] = accessGroup
-        }
+        let query = factory.tokenExistsQuery(provider: provider)
         
         let status = SecItemCopyMatching(query as CFDictionary, nil)
         return status == errSecSuccess
@@ -214,15 +303,7 @@ public actor KeyManager {
             return false
         }
         
-        // Attempt to create a test key to verify Secure Enclave availability
-        let attributes: [String: Any] = [
-            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
-            kSecAttrKeySizeInBits as String: 256,
-            kSecAttrTokenID as String: kSecAttrTokenIDSecureEnclave,
-            kSecPrivateKeyAttrs as String: [
-                kSecAttrIsPermanent as String: false
-            ]
-        ]
+        let attributes = factory.secureEnclaveAvailabilityAttributes()
         
         var error: Unmanaged<CFError>?
         guard SecKeyCreateRandomKey(attributes as CFDictionary, &error) != nil else {
@@ -236,38 +317,14 @@ public actor KeyManager {
     /// - Parameter identifier: Unique identifier for the key
     /// - Returns: The generated key pair
     public func generateSecureEnclaveKeyPair(identifier: String) async throws -> SecureEnclaveKey {
-        guard isSecureEnclaveAvailable() else {
-            throw KeyManagerError.secureEnclaveNotAvailable
-        }
+        guard isSecureEnclaveAvailable() else { throw KeyManagerError.secureEnclaveNotAvailable }
+        guard let tag = identifier.data(using: .utf8) else { throw KeyManagerError.invalidData }
         
-        // Remove any existing key with this identifier
         try? await deleteSecureEnclaveKey(identifier: identifier)
         
-        guard let tag = identifier.data(using: .utf8) else {
-            throw KeyManagerError.invalidData
-        }
-        
-        let attributes: [String: Any] = [
-            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
-            kSecAttrKeySizeInBits as String: 256,
-            kSecAttrTokenID as String: kSecAttrTokenIDSecureEnclave,
-            kSecPrivateKeyAttrs as String: [
-                kSecAttrIsPermanent as String: true,
-                kSecAttrApplicationTag as String: tag,
-                kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-            ]
-        ]
-        
-        var error: Unmanaged<CFError>?
-        guard let privateKey = SecKeyCreateRandomKey(attributes as CFDictionary, &error) else {
-            throw KeyManagerError.keyGenerationFailed
-        }
-        
-        guard let publicKey = SecKeyCopyPublicKey(privateKey) else {
-            throw KeyManagerError.keyGenerationFailed
-        }
-        
-        return SecureEnclaveKey(publicKey: publicKey, privateKey: privateKey)
+        let attributes = factory.secureEnclaveGenerationAttributes(tag: tag)
+        let privateKey = try createRandomKey(attributes: attributes)
+        return try resolveSecureKey(from: privateKey)
     }
     
     /// Retrieve an existing Secure Enclave key pair
@@ -278,12 +335,7 @@ public actor KeyManager {
             throw KeyManagerError.invalidData
         }
         
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassKey,
-            kSecAttrApplicationTag as String: tag,
-            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
-            kSecReturnRef as String: true
-        ]
+        let query = factory.keyPairQuery(tag: tag)
         
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
@@ -296,7 +348,7 @@ public actor KeyManager {
         }
         
         guard let cfResult = result,
-              let privateKey = cfResult.bridgedCFType(SecKeyTypeBridge.self) else {
+              let privateKey = SecKeyTypeBridge.cast(cfResult) else {
             throw KeyManagerError.invalidData
         }
         
@@ -314,17 +366,30 @@ public actor KeyManager {
             throw KeyManagerError.invalidData
         }
         
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassKey,
-            kSecAttrApplicationTag as String: tag,
-            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom
-        ]
+        let query = factory.keyPairDeleteQuery(tag: tag)
         
         let status = SecItemDelete(query as CFDictionary)
         
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw KeyManagerError.deletionFailed(status)
         }
+    }
+    
+    // MARK: - Key Resolution Helpers
+    
+    private func createRandomKey(attributes: [String: Any]) throws -> SecKey {
+        var error: Unmanaged<CFError>?
+        guard let key = SecKeyCreateRandomKey(attributes as CFDictionary, &error) else {
+            throw KeyManagerError.keyGenerationFailed
+        }
+        return key
+    }
+    
+    private func resolveSecureKey(from privateKey: SecKey) throws -> SecureEnclaveKey {
+        guard let publicKey = SecKeyCopyPublicKey(privateKey) else {
+            throw KeyManagerError.keyGenerationFailed
+        }
+        return SecureEnclaveKey(publicKey: publicKey, privateKey: privateKey)
     }
     
     // MARK: - Encryption/Decryption Helpers
@@ -335,21 +400,7 @@ public actor KeyManager {
     ///   - publicKey: The public key to encrypt with
     /// - Returns: The encrypted data
     public func encrypt(data: Data, using publicKey: SecKey) throws -> Data {
-        var error: Unmanaged<CFError>?
-        
-        guard let encryptedData = SecKeyCreateEncryptedData(
-            publicKey,
-            .eciesEncryptionCofactorX963SHA256AESGCM,
-            data as CFData,
-            &error
-        ) else {
-            if error != nil {
-                throw KeyManagerError.invalidData
-            }
-            throw KeyManagerError.invalidData
-        }
-        
-        return encryptedData as Data
+        try Cipher.perform(SecKeyCreateEncryptedData, on: publicKey, data: data)
     }
     
     /// Decrypt data using a Secure Enclave private key
@@ -358,20 +409,6 @@ public actor KeyManager {
     ///   - privateKey: The private key to decrypt with
     /// - Returns: The decrypted data
     public func decrypt(data encryptedData: Data, using privateKey: SecKey) throws -> Data {
-        var error: Unmanaged<CFError>?
-        
-        guard let decryptedData = SecKeyCreateDecryptedData(
-            privateKey,
-            .eciesEncryptionCofactorX963SHA256AESGCM,
-            encryptedData as CFData,
-            &error
-        ) else {
-            if error != nil {
-                throw KeyManagerError.invalidData
-            }
-            throw KeyManagerError.invalidData
-        }
-        
-        return decryptedData as Data
+        try Cipher.perform(SecKeyCreateDecryptedData, on: privateKey, data: encryptedData)
     }
 }
