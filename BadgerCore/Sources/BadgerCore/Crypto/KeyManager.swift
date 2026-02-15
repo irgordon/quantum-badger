@@ -161,6 +161,82 @@ private struct KeychainQueryFactory {
     }
 }
 
+// MARK: - Hardware Abstraction Layer
+
+public protocol KeyProvider: Sendable {
+    func isAvailable() -> Bool
+    func generateKey(attributes: [String: Any]) throws -> SecKey
+}
+
+public protocol StorageProvider: Sendable {
+    func store(query: [String: Any]) throws
+    func fetch(query: [String: Any]) throws -> AnyObject
+    func delete(query: [String: Any]) throws
+}
+
+public struct SecureEnclaveKeyProvider: KeyProvider {
+    public init() {}
+    
+    public func isAvailable() -> Bool {
+        guard #available(macOS 10.15, *) else {
+            return false
+        }
+        return true
+    }
+    
+    public func generateKey(attributes: [String: Any]) throws -> SecKey {
+        var error: Unmanaged<CFError>?
+        guard let key = SecKeyCreateRandomKey(attributes as CFDictionary, &error) else {
+            throw KeyManagerError.keyGenerationFailed
+        }
+        return key
+    }
+}
+
+public struct KeychainStorageProvider: StorageProvider {
+    public init() {}
+    
+    public func store(query: [String: Any]) throws {
+        let status = SecItemAdd(query as CFDictionary, nil)
+        switch status {
+        case errSecSuccess:
+            return
+        case errSecDuplicateItem:
+            throw KeyManagerError.itemAlreadyExists
+        default:
+            throw KeyManagerError.saveFailed(status)
+        }
+    }
+    
+    public func fetch(query: [String: Any]) throws -> AnyObject {
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        switch status {
+        case errSecSuccess:
+            guard let result else {
+                throw KeyManagerError.invalidData
+            }
+            return result
+        case errSecItemNotFound:
+            throw KeyManagerError.itemNotFound
+        default:
+            throw KeyManagerError.retrievalFailed(status)
+        }
+    }
+    
+    public func delete(query: [String: Any]) throws {
+        let status = SecItemDelete(query as CFDictionary)
+        switch status {
+        case errSecSuccess:
+            return
+        case errSecItemNotFound:
+            throw KeyManagerError.itemNotFound
+        default:
+            throw KeyManagerError.deletionFailed(status)
+        }
+    }
+}
+
 // MARK: - Cipher Mechanism
 
 private enum Cipher {
@@ -202,13 +278,21 @@ public actor KeyManager {
     // MARK: - Properties
     
     private let factory: KeychainQueryFactory
+    private let keyProvider: any KeyProvider
+    private let storageProvider: any StorageProvider
     
     // MARK: - Initialization
     
     /// Initialize the KeyManager
     /// - Parameter accessGroup: Optional shared access group for Keychain items
-    public init(accessGroup: String? = nil) {
+    public init(
+        accessGroup: String? = nil,
+        keyProvider: any KeyProvider = SecureEnclaveKeyProvider(),
+        storageProvider: any StorageProvider = KeychainStorageProvider()
+    ) {
         self.factory = KeychainQueryFactory(accessGroup: accessGroup)
+        self.keyProvider = keyProvider
+        self.storageProvider = storageProvider
     }
     
     // MARK: - API Token Management
@@ -226,12 +310,7 @@ public actor KeyManager {
         try? await deleteToken(for: provider)
         
         let query = factory.tokenStoreQuery(provider: provider, tokenData: tokenData)
-        
-        let status = SecItemAdd(query as CFDictionary, nil)
-        
-        guard status == errSecSuccess else {
-            throw KeyManagerError.saveFailed(status)
-        }
+        try storageProvider.store(query: query)
     }
     
     /// Retrieve an API token for a specific provider
@@ -239,17 +318,7 @@ public actor KeyManager {
     /// - Returns: The stored API token
     public func retrieveToken(for provider: AIProvider) async throws -> String {
         let query = factory.tokenRetrieveQuery(provider: provider)
-        
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        
-        guard status == errSecSuccess else {
-            if status == errSecItemNotFound {
-                throw KeyManagerError.itemNotFound
-            }
-            throw KeyManagerError.retrievalFailed(status)
-        }
-        
+        let result = try storageProvider.fetch(query: query)
         guard let data = result as? Data,
               let token = String(data: data, encoding: .utf8) else {
             throw KeyManagerError.invalidData
@@ -262,11 +331,12 @@ public actor KeyManager {
     /// - Parameter provider: The AI provider to delete the token for
     public func deleteToken(for provider: AIProvider) async throws {
         let query = factory.tokenDeleteQuery(provider: provider)
-        
-        let status = SecItemDelete(query as CFDictionary)
-        
-        guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw KeyManagerError.deletionFailed(status)
+        do {
+            try storageProvider.delete(query: query)
+        } catch let error as KeyManagerError {
+            guard case .itemNotFound = error else {
+                throw error
+            }
         }
     }
     
@@ -275,9 +345,12 @@ public actor KeyManager {
     /// - Returns: True if a token exists
     public func hasToken(for provider: AIProvider) async -> Bool {
         let query = factory.tokenExistsQuery(provider: provider)
-        
-        let status = SecItemCopyMatching(query as CFDictionary, nil)
-        return status == errSecSuccess
+        do {
+            _ = try storageProvider.fetch(query: query)
+            return true
+        } catch {
+            return false
+        }
     }
     
     /// List all providers that have stored tokens
@@ -298,19 +371,7 @@ public actor KeyManager {
     
     /// Check if Secure Enclave is available on this device
     public func isSecureEnclaveAvailable() -> Bool {
-        // Check if the device supports Secure Enclave (all Apple Silicon Macs do)
-        guard #available(macOS 10.15, *) else {
-            return false
-        }
-        
-        let attributes = factory.secureEnclaveAvailabilityAttributes()
-        
-        var error: Unmanaged<CFError>?
-        guard SecKeyCreateRandomKey(attributes as CFDictionary, &error) != nil else {
-            return false
-        }
-        
-        return true
+        keyProvider.isAvailable()
     }
     
     /// Generate a new P-256 key pair in the Secure Enclave
@@ -318,12 +379,12 @@ public actor KeyManager {
     /// - Returns: The generated key pair
     public func generateSecureEnclaveKeyPair(identifier: String) async throws -> SecureEnclaveKey {
         guard isSecureEnclaveAvailable() else { throw KeyManagerError.secureEnclaveNotAvailable }
-        guard let tag = identifier.data(using: .utf8) else { throw KeyManagerError.invalidData }
+        let tag = try resolveTag(identifier)
         
         try? await deleteSecureEnclaveKey(identifier: identifier)
         
         let attributes = factory.secureEnclaveGenerationAttributes(tag: tag)
-        let privateKey = try createRandomKey(attributes: attributes)
+        let privateKey = try keyProvider.generateKey(attributes: attributes)
         return try resolveSecureKey(from: privateKey)
     }
     
@@ -331,24 +392,11 @@ public actor KeyManager {
     /// - Parameter identifier: The identifier of the key to retrieve
     /// - Returns: The key pair if found
     public func retrieveSecureEnclaveKey(identifier: String) async throws -> SecureEnclaveKey {
-        guard let tag = identifier.data(using: .utf8) else {
-            throw KeyManagerError.invalidData
-        }
+        let tag = try resolveTag(identifier)
         
         let query = factory.keyPairQuery(tag: tag)
-        
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        
-        guard status == errSecSuccess else {
-            if status == errSecItemNotFound {
-                throw KeyManagerError.itemNotFound
-            }
-            throw KeyManagerError.retrievalFailed(status)
-        }
-        
-        guard let cfResult = result,
-              let privateKey = SecKeyTypeBridge.cast(cfResult) else {
+        let result = try storageProvider.fetch(query: query)
+        guard let privateKey = SecKeyTypeBridge.cast(result) else {
             throw KeyManagerError.invalidData
         }
         
@@ -362,34 +410,32 @@ public actor KeyManager {
     /// Delete a Secure Enclave key pair
     /// - Parameter identifier: The identifier of the key to delete
     public func deleteSecureEnclaveKey(identifier: String) async throws {
-        guard let tag = identifier.data(using: .utf8) else {
-            throw KeyManagerError.invalidData
-        }
+        let tag = try resolveTag(identifier)
         
         let query = factory.keyPairDeleteQuery(tag: tag)
-        
-        let status = SecItemDelete(query as CFDictionary)
-        
-        guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw KeyManagerError.deletionFailed(status)
+        do {
+            try storageProvider.delete(query: query)
+        } catch let error as KeyManagerError {
+            guard case .itemNotFound = error else {
+                throw error
+            }
         }
     }
     
     // MARK: - Key Resolution Helpers
-    
-    private func createRandomKey(attributes: [String: Any]) throws -> SecKey {
-        var error: Unmanaged<CFError>?
-        guard let key = SecKeyCreateRandomKey(attributes as CFDictionary, &error) else {
-            throw KeyManagerError.keyGenerationFailed
-        }
-        return key
-    }
     
     private func resolveSecureKey(from privateKey: SecKey) throws -> SecureEnclaveKey {
         guard let publicKey = SecKeyCopyPublicKey(privateKey) else {
             throw KeyManagerError.keyGenerationFailed
         }
         return SecureEnclaveKey(publicKey: publicKey, privateKey: privateKey)
+    }
+    
+    private func resolveTag(_ identifier: String) throws -> Data {
+        guard let tag = identifier.data(using: .utf8) else {
+            throw KeyManagerError.invalidData
+        }
+        return tag
     }
     
     // MARK: - Encryption/Decryption Helpers
