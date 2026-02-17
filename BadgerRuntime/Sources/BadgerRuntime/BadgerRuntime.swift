@@ -4,7 +4,7 @@ import BadgerCore
 // MARK: - BadgerRuntime
 
 public enum BadgerRuntime {
-    public static let version = "1.0.0"
+    public static let version = "1.0.1"
     
     public static func initialize() async throws {
         let auditService = AuditLogService()

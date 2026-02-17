@@ -4,7 +4,7 @@ import Foundation
 
 /// Represents a pattern to detect and sanitize
 /// Uses stored regex pattern strings instead of compiled Regex to maintain Sendable conformance
-public struct SanitizationPattern: Sendable {
+public struct SanitizationPattern: Sendable, Equatable {
     public let name: String
     public let patternString: String
     public let replacement: String
@@ -77,6 +77,12 @@ public enum SanitizationError: Error, Sendable {
 /// Struct responsible for sanitizing input strings to remove malicious code patterns
 public struct InputSanitizer: Sendable {
     
+    /// Internal representation of a compiled sanitization pattern
+    private struct CompiledPattern: Sendable {
+        let pattern: SanitizationPattern
+        let regex: Regex<AnyRegexOutput>
+    }
+
     // MARK: - Default Patterns
     
     /// SQL Injection patterns
@@ -306,16 +312,31 @@ public struct InputSanitizer: Sendable {
         piiPatterns
     }()
     
+    /// Cached compiled default patterns to avoid recompilation
+    private static let defaultCompiledPatterns: [CompiledPattern] = {
+        defaultPatterns.compactMap { pattern in
+            guard let regex = try? pattern.compile() else { return nil }
+            return CompiledPattern(pattern: pattern, regex: regex)
+        }
+    }()
+
     // MARK: - Properties
     
-    private let patterns: [SanitizationPattern]
+    private let compiledPatterns: [CompiledPattern]
     
     // MARK: - Initialization
     
     /// Create a sanitizer with custom patterns
     /// - Parameter patterns: The patterns to use for sanitization
     public init(patterns: [SanitizationPattern] = InputSanitizer.defaultPatterns) {
-        self.patterns = patterns
+        if patterns == InputSanitizer.defaultPatterns {
+            self.compiledPatterns = InputSanitizer.defaultCompiledPatterns
+        } else {
+            self.compiledPatterns = patterns.compactMap { pattern in
+                guard let regex = try? pattern.compile() else { return nil }
+                return CompiledPattern(pattern: pattern, regex: regex)
+            }
+        }
     }
     
     /// Create a sanitizer for specific threat categories
@@ -332,6 +353,12 @@ public struct InputSanitizer: Sendable {
         includeXSS: Bool = true,
         includePII: Bool = true
     ) {
+        // If all are true (default), use the cached default compiled patterns
+        if includeSQL && includeShell && includePath && includeXSS && includePII {
+            self.compiledPatterns = InputSanitizer.defaultCompiledPatterns
+            return
+        }
+
         var selectedPatterns: [SanitizationPattern] = []
         
         if includeSQL {
@@ -350,7 +377,10 @@ public struct InputSanitizer: Sendable {
             selectedPatterns.append(contentsOf: InputSanitizer.piiPatterns)
         }
         
-        self.patterns = selectedPatterns
+        self.compiledPatterns = selectedPatterns.compactMap { pattern in
+            guard let regex = try? pattern.compile() else { return nil }
+            return CompiledPattern(pattern: pattern, regex: regex)
+        }
     }
     
     // MARK: - Sanitization Methods
@@ -363,35 +393,29 @@ public struct InputSanitizer: Sendable {
         var sanitized = input
         var violations: [SanitizationResult.Violation] = []
         
-        for pattern in patterns {
-            do {
-                // Compile once per pattern
-                let regex = try pattern.compile()
-                
-                // 1. Detection Phase: Find matches to log violations
-                let matches = sanitized.matches(of: regex)
-                if matches.isEmpty { continue }
-                
-                // Record violations
-                for match in matches {
-                    let matchedText = String(sanitized[match.range])
-                    let violation = SanitizationResult.Violation(
-                        patternName: pattern.name,
-                        matchedText: matchedText,
-                        severity: pattern.severity,
-                        replacement: pattern.replacement
-                    )
-                    violations.append(violation)
-                }
-                
-                // 2. Replacement Phase: Safe substitution
-                // Using standard String regex replacement which handles indices automatically
-                sanitized.replace(regex, with: pattern.replacement)
-                
-            } catch {
-                // Skip invalid patterns gracefully
-                continue
+        for compiled in compiledPatterns {
+            let regex = compiled.regex
+            let pattern = compiled.pattern
+
+            // 1. Detection Phase: Find matches to log violations
+            let matches = sanitized.matches(of: regex)
+            if matches.isEmpty { continue }
+
+            // Record violations
+            for match in matches {
+                let matchedText = String(sanitized[match.range])
+                let violation = SanitizationResult.Violation(
+                    patternName: pattern.name,
+                    matchedText: matchedText,
+                    severity: pattern.severity,
+                    replacement: pattern.replacement
+                )
+                violations.append(violation)
             }
+
+            // 2. Replacement Phase: Safe substitution
+            // Using standard String regex replacement which handles indices automatically
+            sanitized.replace(regex, with: pattern.replacement)
         }
         
         return SanitizationResult(
@@ -405,14 +429,9 @@ public struct InputSanitizer: Sendable {
     /// - Parameter input: The string to check
     /// - Returns: True if malicious patterns are detected
     public func containsMaliciousPatterns(_ input: String) -> Bool {
-        for pattern in patterns {
-            do {
-                let regex = try pattern.compile()
-                if input.contains(regex) {
-                    return true
-                }
-            } catch {
-                continue
+        for compiled in compiledPatterns {
+            if input.contains(compiled.regex) {
+                return true
             }
         }
         return false
@@ -424,14 +443,9 @@ public struct InputSanitizer: Sendable {
     public func getMatchingPatterns(_ input: String) -> [String] {
         var matches: [String] = []
         
-        for pattern in patterns {
-            do {
-                let regex = try pattern.compile()
-                if input.contains(regex) {
-                    matches.append(pattern.name)
-                }
-            } catch {
-                continue
+        for compiled in compiledPatterns {
+            if input.contains(compiled.regex) {
+                matches.append(compiled.pattern.name)
             }
         }
         
