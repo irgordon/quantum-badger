@@ -3,7 +3,7 @@ import Foundation
 // MARK: - BadgerCore
 
 public enum BadgerCore {
-    public static let version = "1.0.0"
+    public static let version = "0.1.1"
     
     public static func initialize() async throws {
         let auditService = AuditLogService()

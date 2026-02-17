@@ -17,7 +17,7 @@ extension Notification.Name {
 // MARK: - BadgerApp Entry Point & API
 
 public enum BadgerApp {
-    public static let version = "1.0.0"
+    public static let version = "0.1.1"
     
     /// Initializes the core runtime services.
     /// Must be called early in the app lifecycle.
