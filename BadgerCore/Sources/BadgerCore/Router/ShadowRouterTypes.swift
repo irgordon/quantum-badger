@@ -192,19 +192,19 @@ public enum PromptComplexity: String, Sendable, Codable, CaseIterable {
         }
     }
     
+    /// Keywords that indicate higher prompt complexity
+    public static let complexityIndicators = [
+        "explain", "analyze", "compare", "contrast", "evaluate",
+        "synthesize", "critique", "justify", "recommend", "design",
+        "implement", "optimize", "refactor", "architecture",
+        "algorithm", "complex", "detailed", "comprehensive",
+        "synthesize", "critique", "analysis", "evaluate"
+    ]
+
     /// Assess complexity based on prompt characteristics
     public static func assess(prompt: String) -> PromptComplexity {
         let wordCount = prompt.split(separator: " ").count
         let lineCount = prompt.components(separatedBy: .newlines).count
-        
-        // Check for complexity indicators
-        let complexityIndicators = [
-            "explain", "analyze", "compare", "contrast", "evaluate",
-            "synthesize", "critique", "justify", "recommend", "design",
-            "implement", "optimize", "refactor", "architecture",
-            "algorithm", "complex", "detailed", "comprehensive",
-            "synthesize", "critique", "analysis", "evaluate"
-        ]
         
         let indicatorCount = complexityIndicators.reduce(0) { count, indicator in
             count + (prompt.lowercased().contains(indicator) ? 1 : 0)

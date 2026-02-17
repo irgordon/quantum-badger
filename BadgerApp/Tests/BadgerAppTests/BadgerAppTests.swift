@@ -300,6 +300,6 @@ struct BadgerAppIntegrationTests {
     
     @Test("BadgerApp static methods")
     func testBadgerAppStatics() async throws {
-        #expect(BadgerApp.version == "1.0.0")
+        #expect(BadgerApp.version == "0.1.1")
     }
 }
