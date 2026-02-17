@@ -49,18 +49,27 @@ public enum SLARuntimeGuard {
         )
         
         let outputHash = outputHashForOutcome(outcome, outputMaterial: outputMaterial)
-        await logAuditRecord(
-            functionName: functionName,
-            startTimestamp: startTimestamp,
-            endTimestamp: endTimestamp,
-            durationMs: durationMs,
-            inputHash: inputHash,
-            outputHash: outputHash,
-            memorySnapshotMb: memorySnapshotMb,
-            sla: sla,
-            outcome: outcome,
-            auditService: auditService
-        )
+        do {
+            try await logAuditRecord(
+                functionName: functionName,
+                startTimestamp: startTimestamp,
+                endTimestamp: endTimestamp,
+                durationMs: durationMs,
+                inputHash: inputHash,
+                outputHash: outputHash,
+                memorySnapshotMb: memorySnapshotMb,
+                sla: sla,
+                outcome: outcome,
+                auditService: auditService
+            )
+        } catch {
+            if let data = "CRITICAL: Audit logging failed for \(functionName): \(error.localizedDescription)\n".data(using: .utf8) {
+                try? FileHandle.standardError.write(contentsOf: data)
+            }
+            if case .success = outcome {
+                return .failure(.auditLoggingFailed(error.localizedDescription))
+            }
+        }
         
         return outcome
     }
@@ -141,7 +150,7 @@ public enum SLARuntimeGuard {
         sla: FunctionSLA,
         outcome: Result<Output, FunctionError>,
         auditService: AuditLogService
-    ) async {
+    ) async throws {
         let failureReason = outcome.failureDescription
         let record = FunctionAuditRecord(
             functionName: functionName,
@@ -156,27 +165,27 @@ public enum SLARuntimeGuard {
             failureReason: failureReason
         )
         
-        guard let payload = encodeRecord(record) else {
-            return
-        }
+        let payload = try encodeRecord(record)
         
-        _ = try? await auditService.log(
+        try await auditService.log(
             type: .functionExecution,
             source: functionName,
             details: payload
         )
     }
     
-    private static func encodeRecord(_ record: FunctionAuditRecord) -> String? {
+    private static func encodeRecord(_ record: FunctionAuditRecord) throws -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         
-        guard let data = try? encoder.encode(record) else {
-            return nil
+        let data = try encoder.encode(record)
+
+        guard let jsonString = String(data: data, encoding: .utf8) else {
+            throw AuditLogError.invalidLogFormat
         }
         
-        return String(data: data, encoding: .utf8)
+        return jsonString
     }
 }
 
