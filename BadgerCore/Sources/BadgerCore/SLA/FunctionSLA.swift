@@ -35,6 +35,7 @@ public enum FunctionError: Error, Sendable, Equatable {
     case memoryBudgetExceeded(limitMb: Int, observedMb: Int)
     case deterministicViolation(String)
     case executionFailed(String)
+    case auditLoggingFailed(String)
 }
 
 // MARK: - Function Clock

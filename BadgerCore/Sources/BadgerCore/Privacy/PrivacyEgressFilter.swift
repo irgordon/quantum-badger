@@ -197,23 +197,24 @@ public struct PrivacyEgressFilter: Sendable {
     
     /// Deduplicate overlapping detections, preferring high-confidence matches over low-confidence ones.
     /// When detections overlap, we keep the one with higher confidence (or longer match if same confidence).
-    private func deduplicateOverlappingDetections(_ detections: [Detection]) -> [Detection] {
+    internal func deduplicateOverlappingDetections(_ detections: [Detection]) -> [Detection] {
         // Sort all detections by:
-        // 1. Range start position
-        // 2. Confidence (high > medium > low)
-        // 3. Match length (longer is better)
+        // 1. Confidence (high > medium > low)
+        // 2. Match length (longer is better)
+        // 3. Range start position (earlier is better)
         let sorted = detections.sorted(by: { (a, b) in
-            if a.range.lowerBound != b.range.lowerBound {
-                return a.range.lowerBound < b.range.lowerBound
-            }
-            // Same start position - sort by confidence priority
+            // 1. Confidence priority
             let aPriority = confidencePriority(a.confidence)
             let bPriority = confidencePriority(b.confidence)
             if aPriority != bPriority {
-                return aPriority > bPriority // Higher priority first
+                return aPriority > bPriority
             }
-            // Same confidence - longer match first
-            return a.matchedText.count > b.matchedText.count
+            // 2. Match length
+            if a.matchedText.count != b.matchedText.count {
+                return a.matchedText.count > b.matchedText.count
+            }
+            // 3. Start position
+            return a.range.lowerBound < b.range.lowerBound
         })
         
         var filtered: [Detection] = []
