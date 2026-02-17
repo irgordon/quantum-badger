@@ -41,12 +41,7 @@ public enum SLARuntimeGuard {
         let endMemoryMb = MemorySnapshot.bytesToMb(MemorySnapshot.residentMemoryBytes())
         let memorySnapshotMb = max(startMemoryMb, endMemoryMb)
         
-        let outcome = evaluateOutcome(
-            timedOutcome: timedOutcome,
-            durationMs: durationMs,
-            memorySnapshotMb: memorySnapshotMb,
-            sla: sla
-        )
+        let outcome = timedOutcome
         
         let outputHash = outputHashForOutcome(outcome, outputMaterial: outputMaterial)
         do {
@@ -106,27 +101,6 @@ public enum SLARuntimeGuard {
         }
     }
     
-    private static func evaluateOutcome<Output: Sendable>(
-        timedOutcome: Result<Output, FunctionError>,
-        durationMs: Int,
-        memorySnapshotMb: Int,
-        sla: FunctionSLA
-    ) -> Result<Output, FunctionError> {
-        if case .failure = timedOutcome {
-            return timedOutcome
-        }
-        
-        if durationMs > sla.maxLatencyMs {
-            return .failure(.timeoutExceeded(seconds: sla.timeoutSeconds))
-        }
-        
-        if memorySnapshotMb > sla.maxMemoryMb {
-            return .failure(.memoryBudgetExceeded(limitMb: sla.maxMemoryMb, observedMb: memorySnapshotMb))
-        }
-        
-        return timedOutcome
-    }
-    
     private static func outputHashForOutcome<Output: Sendable>(
         _ outcome: Result<Output, FunctionError>,
         outputMaterial: @Sendable (Output) -> String
@@ -151,7 +125,19 @@ public enum SLARuntimeGuard {
         outcome: Result<Output, FunctionError>,
         auditService: AuditLogService
     ) async throws {
-        let failureReason = outcome.failureDescription
+        var failureReason = outcome.failureDescription
+        var slaCompliant = failureReason == nil
+
+        if slaCompliant {
+            if durationMs > sla.maxLatencyMs {
+                slaCompliant = false
+                failureReason = "Latency limit exceeded: \(durationMs)ms > \(sla.maxLatencyMs)ms"
+            } else if memorySnapshotMb > sla.maxMemoryMb {
+                slaCompliant = false
+                failureReason = "Memory limit exceeded: \(memorySnapshotMb)Mb > \(sla.maxMemoryMb)Mb"
+            }
+        }
+
         let record = FunctionAuditRecord(
             functionName: functionName,
             startTimestamp: startTimestamp,
@@ -161,7 +147,7 @@ public enum SLARuntimeGuard {
             outputHash: outputHash,
             memorySnapshotMb: memorySnapshotMb,
             slaVersion: sla.version,
-            slaCompliant: failureReason == nil,
+            slaCompliant: slaCompliant,
             failureReason: failureReason
         )
         
