@@ -327,9 +327,11 @@ struct ChatMessage: Identifiable, Sendable {
 
 // MARK: - History View (Placeholder)
 
+// TODO: Implement HistoryView to display past conversations.
+// This is currently a placeholder for the History tab.
 struct HistoryView: View {
     var body: some View {
-        ContentUnavailableView("History", systemImage: "clock.arrow.circlepath", description: Text("Your past conversations will appear here"))
+        ContentUnavailableView("History", systemImage: "clock.arrow.circlepath", description: Text("Your past conversations will appear here. Coming soon."))
     }
 }
 
