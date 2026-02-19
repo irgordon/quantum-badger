@@ -435,20 +435,35 @@ public struct SystemState: Sendable, Codable {
     /// Active application that might be competing for resources
     public let competingApplications: [String]
     
+    /// Keywords for identifying Xcode
+    private static let xcodeKeywords = ["xcode"]
+
+    /// Keywords for identifying video rendering applications
+    private static let videoRenderingKeywords = [
+        "final cut",
+        "premiere",
+        "davinci",
+        "after effects"
+    ]
+
+    /// Helper to check if any app matching the keywords is running
+    private func isAppRunning(matching keywords: [String]) -> Bool {
+        competingApplications.contains { app in
+            let lowercased = app.lowercased()
+            return keywords.contains { keyword in
+                lowercased.contains(keyword)
+            }
+        }
+    }
+
     /// Whether Xcode is currently building
     public var isXcodeBuilding: Bool {
-        competingApplications.contains { $0.lowercased().contains("xcode") }
+        isAppRunning(matching: Self.xcodeKeywords)
     }
     
     /// Whether video rendering is in progress
     public var isRenderingVideo: Bool {
-        competingApplications.contains { app in
-            let lowercased = app.lowercased()
-            return lowercased.contains("final cut") ||
-                   lowercased.contains("premiere") ||
-                   lowercased.contains("davinci") ||
-                   lowercased.contains("after effects")
-        }
+        isAppRunning(matching: Self.videoRenderingKeywords)
     }
     
     // MARK: - Safe Mode Determination
