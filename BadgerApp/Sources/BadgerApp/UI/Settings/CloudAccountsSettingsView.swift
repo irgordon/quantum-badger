@@ -225,13 +225,50 @@ public final class CloudAccountsViewModel: ObservableObject {
         isLoading = true
         defer { isLoading = false }
         
-        var statuses: [ProviderStatus] = []
-        for provider in [CloudProvider.anthropic, .openAI, .google] {
-            let hasToken = await keyManager.hasToken(for: provider)
-            let testResult = hasToken ? await testProviderConnection(provider) : nil
-            statuses.append(ProviderStatus(provider: provider, isConnected: hasToken, isAuthenticated: hasToken && testResult != nil, lastTested: hasToken ? Date() : nil, testResult: testResult))
+        let providers: [CloudProvider] = [.anthropic, .openAI, .google]
+        let keyManager = self.keyManager
+        let cloudService = self.cloudService
+
+        let results = await withTaskGroup(of: ProviderStatus.self) { group in
+            for provider in providers {
+                group.addTask {
+                    let hasToken = await keyManager.hasToken(for: provider)
+
+                    let testResult: ProviderStatus.TestResult?
+                    if hasToken {
+                        do {
+                            let startTime = Date()
+                            _ = try await cloudService.generateMini(prompt: "Hello", provider: provider)
+                            testResult = .success(latency: Date().timeIntervalSince(startTime))
+                        } catch {
+                            testResult = .failure(message: error.localizedDescription)
+                        }
+                    } else {
+                        testResult = nil
+                    }
+
+                    return ProviderStatus(
+                        provider: provider,
+                        isConnected: hasToken,
+                        isAuthenticated: hasToken && testResult != nil,
+                        lastTested: hasToken ? Date() : nil,
+                        testResult: testResult
+                    )
+                }
+            }
+
+            var statuses: [ProviderStatus] = []
+            for await status in group {
+                statuses.append(status)
+            }
+            return statuses
         }
-        providerStatuses = statuses
+
+        providerStatuses = results.sorted { p1, p2 in
+            let index1 = providers.firstIndex(of: p1.provider) ?? Int.max
+            let index2 = providers.firstIndex(of: p2.provider) ?? Int.max
+            return index1 < index2
+        }
     }
     
     public func authenticate(provider: CloudProvider) {

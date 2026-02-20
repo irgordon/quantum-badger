@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.6]
+
+### Fixed
+- **Performance**: Optimized cloud provider status checking in settings to run in parallel rather than sequentially. This reduces the loading time from the sum of all provider latencies to the maximum of a single provider latency.
+
 ## [1.0.5]
 
 ### Changed
