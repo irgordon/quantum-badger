@@ -117,6 +117,16 @@ public actor WebBrowserService {
     private let auditService: AuditLogService
     private let clock: FunctionClock
     
+    // MARK: - Pre-compiled Regex Patterns
+
+    private static let titleRegex = try? NSRegularExpression(pattern: #"<title[^>]*>([^<]+)</title>"#, options: .caseInsensitive)
+    private static let scriptRegex = try? NSRegularExpression(pattern: #"<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>"#)
+    private static let styleRegex = try? NSRegularExpression(pattern: #"<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>"#)
+    private static let htmlTagRegex = try? NSRegularExpression(pattern: #"<[^>]+>"#)
+    private static let jsSchemeRegex = try? NSRegularExpression(pattern: #"javascript:[^\s\"']+"#)
+    private static let eventHandlerRegex = try? NSRegularExpression(pattern: #"on\w+\s*=\s*['\"]?[^'\"\s>]+"#)
+    private static let whitespaceRegex = try? NSRegularExpression(pattern: #"\s+"#)
+
     private var activeTasks: [UUID: Task<FetchedContent, Error>] = [:]
     private var rateLimitStore: [String: Date] = [:]
     
@@ -323,9 +333,14 @@ public actor WebBrowserService {
         return (title, textContent)
     }
     
+    private func replaceMatches(in text: String, regex: NSRegularExpression?, with template: String) -> String {
+        guard let regex = regex else { return text }
+        let range = NSRange(text.startIndex..., in: text)
+        return regex.stringByReplacingMatches(in: text, options: [], range: range, withTemplate: template)
+    }
+
     private func extractTitle(from html: String) -> String? {
-        let pattern = #"<title[^>]*>([^<]+)</title>"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
+        guard let regex = Self.titleRegex,
               let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)) else {
             return nil
         }
@@ -337,21 +352,21 @@ public actor WebBrowserService {
     
     private func stripHTML(_ html: String) -> String {
         var result = html
-        result = result.replacingOccurrences(of: #"<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>"#, with: "", options: .regularExpression)
-        result = result.replacingOccurrences(of: #"<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>"#, with: "", options: .regularExpression)
-        result = result.replacingOccurrences(of: #"<[^>]+>"#, with: " ", options: .regularExpression)
+        result = replaceMatches(in: result, regex: Self.scriptRegex, with: "")
+        result = replaceMatches(in: result, regex: Self.styleRegex, with: "")
+        result = replaceMatches(in: result, regex: Self.htmlTagRegex, with: " ")
         return decodeHTMLEntities(result)
     }
     
     private func stripJavaScript(_ text: String) -> String {
         var result = text
-        result = result.replacingOccurrences(of: #"javascript:[^\s\"']+"#, with: "", options: .regularExpression)
-        result = result.replacingOccurrences(of: #"on\w+\s*=\s*['\"]?[^'\"\s>]+"#, with: "", options: .regularExpression)
+        result = replaceMatches(in: result, regex: Self.jsSchemeRegex, with: "")
+        result = replaceMatches(in: result, regex: Self.eventHandlerRegex, with: "")
         return result
     }
     
     private func normalizeWhitespace(_ text: String) -> String {
-        text.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        replaceMatches(in: text, regex: Self.whitespaceRegex, with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
     
