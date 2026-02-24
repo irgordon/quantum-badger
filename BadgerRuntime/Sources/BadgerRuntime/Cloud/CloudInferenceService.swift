@@ -400,57 +400,19 @@ public actor CloudInferenceService {
         messages: [CloudMessage],
         configuration: CloudRequestConfiguration
     ) async throws -> CloudInferenceResult {
-        // Fetch token at request time from KeyManager
-        let token: String
-        do {
-            token = try await keyManager.retrieveToken(for: configuration.provider)
-        } catch {
-            throw CloudInferenceError.noTokenAvailable
-        }
-        
-        // Sanitize messages
-        let sanitizer = InputSanitizer()
-        let sanitizedMessages = messages.map { message in
-            CloudMessage(
-                role: message.role,
-                content: sanitizer.sanitize(message.content).sanitized
-            )
-        }
+        let token = try await retrieveToken(for: configuration.provider)
+        let sanitizedMessages = sanitizeMessages(messages)
         
         let requestId = UUID()
         let startTime = Date()
         
         do {
-            let task = Task<Data, Error> {
-                defer { Task { self.removeTask(requestId) } }
-                
-                let request = try self.buildRequest(
-                    messages: sanitizedMessages,
-                    configuration: configuration,
-                    token: token
-                )
-                
-                let (data, response) = try await self.urlSession.data(for: request)
-                
-                guard let httpResponse = response as? HTTPURLResponse else {
-                    throw CloudInferenceError.invalidResponse
-                }
-                
-                switch httpResponse.statusCode {
-                case 200...299:
-                    return data
-                case 429:
-                    throw CloudInferenceError.rateLimited
-                case 503:
-                    throw CloudInferenceError.serviceUnavailable
-                default:
-                    let errorBody = String(data: data, encoding: .utf8) ?? "Unknown error"
-                    throw CloudInferenceError.apiError(httpResponse.statusCode, errorBody)
-                }
-            }
-            
-            self.addTask(task, id: requestId)
-            let data = try await task.value
+            let data = try await executeNetworkRequest(
+                messages: sanitizedMessages,
+                configuration: configuration,
+                token: token,
+                requestId: requestId
+            )
             
             let requestTime = Date().timeIntervalSince(startTime)
             
@@ -469,6 +431,64 @@ public actor CloudInferenceService {
         }
     }
     
+    // MARK: - Internal Helpers
+
+    private func retrieveToken(for provider: CloudProvider) async throws -> String {
+        do {
+            return try await keyManager.retrieveToken(for: provider)
+        } catch {
+            throw CloudInferenceError.noTokenAvailable
+        }
+    }
+
+    private func sanitizeMessages(_ messages: [CloudMessage]) -> [CloudMessage] {
+        let sanitizer = InputSanitizer()
+        return messages.map { message in
+            CloudMessage(
+                role: message.role,
+                content: sanitizer.sanitize(message.content).sanitized
+            )
+        }
+    }
+
+    private func executeNetworkRequest(
+        messages: [CloudMessage],
+        configuration: CloudRequestConfiguration,
+        token: String,
+        requestId: UUID
+    ) async throws -> Data {
+        let task = Task<Data, Error> {
+            defer { Task { await self.removeTask(requestId) } }
+
+            let request = try self.buildRequest(
+                messages: messages,
+                configuration: configuration,
+                token: token
+            )
+
+            let (data, response) = try await self.urlSession.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw CloudInferenceError.invalidResponse
+            }
+
+            switch httpResponse.statusCode {
+            case 200...299:
+                return data
+            case 429:
+                throw CloudInferenceError.rateLimited
+            case 503:
+                throw CloudInferenceError.serviceUnavailable
+            default:
+                let errorBody = String(data: data, encoding: .utf8) ?? "Unknown error"
+                throw CloudInferenceError.apiError(httpResponse.statusCode, errorBody)
+            }
+        }
+
+        self.addTask(task, id: requestId)
+        return try await task.value
+    }
+
     private func mapFunctionError(_ error: FunctionError) -> CloudInferenceError {
         switch error {
         case .invalidInput:
