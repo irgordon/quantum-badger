@@ -300,6 +300,21 @@ public actor AuditLogService {
             throw AuditLogError.writeFailed
         }
         
+        // Ensure log file exists before opening FileHandle
+        let fileManager = FileManager.default
+        if !fileManager.fileExists(atPath: currentLogFile.path) {
+            let success = fileManager.createFile(
+                atPath: currentLogFile.path,
+                contents: nil,
+                attributes: [
+                    FileAttributeKey.protectionKey: FileProtectionType.completeUnlessOpen
+                ]
+            )
+            guard success else {
+                throw AuditLogError.writeFailed
+            }
+        }
+
         let fileHandle = try FileHandle(forWritingTo: currentLogFile)
         defer { try? fileHandle.close() }
         
