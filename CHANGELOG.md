@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Performance**: Reduced high memory usage during model downloads by switching from `URLSession.shared.data(from:)` to `URLSession.shared.download(from:)`. This ensures large files are streamed to disk instead of being fully loaded into RAM.
+
 ## [1.0.6]
 
 ### Fixed
