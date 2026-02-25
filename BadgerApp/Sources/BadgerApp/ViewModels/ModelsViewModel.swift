@@ -262,11 +262,14 @@ public final class ModelsViewModel {
                 at: destination.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            let (data, response) = try await URLSession.shared.data(from: fileURL)
+            let (tempURL, response) = try await URLSession.shared.download(from: fileURL)
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                 throw URLError(.badServerResponse)
             }
-            try data.write(to: destination, options: .atomic)
+            if FileManager.default.fileExists(atPath: destination.path) {
+                try FileManager.default.removeItem(at: destination)
+            }
+            try FileManager.default.moveItem(at: tempURL, to: destination)
             
             let progress = Double(index + 1) / Double(totalFiles)
             await MainActor.run {
