@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Code Health**: Refactored `generateStreaming` in `CloudStreaming.swift` to reduce complexity by extracting request preparation and response processing into helper methods.
+
 ### Fixed
 - **Performance**: Reduced high memory usage during model downloads by switching from `URLSession.shared.data(from:)` to `URLSession.shared.download(from:)`. This ensures large files are streamed to disk instead of being fully loaded into RAM.
 
