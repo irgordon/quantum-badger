@@ -325,18 +325,23 @@ public actor WebBrowserService {
         }
         
         let title = extractTitle(from: htmlString) ?? "Untitled"
-        var textContent = stripHTML(htmlString)
-        textContent = stripJavaScript(textContent)
-        textContent = normalizeWhitespace(textContent)
+
+        // Use NSMutableString for in-place modifications to reduce memory allocations
+        let mutableContent = NSMutableString(string: htmlString)
+
+        stripHTML(mutableContent)
+        stripJavaScript(mutableContent)
+        normalizeWhitespace(mutableContent)
+
+        var textContent = (mutableContent as String).trimmingCharacters(in: .whitespacesAndNewlines)
         textContent = inputSanitizer.sanitize(textContent).sanitized
         
         return (title, textContent)
     }
     
-    private func replaceMatches(in text: String, regex: NSRegularExpression?, with template: String) -> String {
-        guard let regex = regex else { return text }
-        let range = NSRange(text.startIndex..., in: text)
-        return regex.stringByReplacingMatches(in: text, options: [], range: range, withTemplate: template)
+    private func replaceMatches(in mutableString: NSMutableString, regex: NSRegularExpression?, with template: String) {
+        guard let regex = regex else { return }
+        regex.replaceMatches(in: mutableString, options: [], range: NSRange(location: 0, length: mutableString.length), withTemplate: template)
     }
 
     private func extractTitle(from html: String) -> String? {
@@ -350,36 +355,30 @@ public actor WebBrowserService {
         return nil
     }
     
-    private func stripHTML(_ html: String) -> String {
-        var result = html
-        result = replaceMatches(in: result, regex: Self.scriptRegex, with: "")
-        result = replaceMatches(in: result, regex: Self.styleRegex, with: "")
-        result = replaceMatches(in: result, regex: Self.htmlTagRegex, with: " ")
-        return decodeHTMLEntities(result)
+    private func stripHTML(_ mutableString: NSMutableString) {
+        replaceMatches(in: mutableString, regex: Self.scriptRegex, with: "")
+        replaceMatches(in: mutableString, regex: Self.styleRegex, with: "")
+        replaceMatches(in: mutableString, regex: Self.htmlTagRegex, with: " ")
+        decodeHTMLEntities(mutableString)
     }
     
-    private func stripJavaScript(_ text: String) -> String {
-        var result = text
-        result = replaceMatches(in: result, regex: Self.jsSchemeRegex, with: "")
-        result = replaceMatches(in: result, regex: Self.eventHandlerRegex, with: "")
-        return result
+    private func stripJavaScript(_ mutableString: NSMutableString) {
+        replaceMatches(in: mutableString, regex: Self.jsSchemeRegex, with: "")
+        replaceMatches(in: mutableString, regex: Self.eventHandlerRegex, with: "")
     }
     
-    private func normalizeWhitespace(_ text: String) -> String {
-        replaceMatches(in: text, regex: Self.whitespaceRegex, with: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+    private func normalizeWhitespace(_ mutableString: NSMutableString) {
+        replaceMatches(in: mutableString, regex: Self.whitespaceRegex, with: " ")
     }
     
-    private func decodeHTMLEntities(_ text: String) -> String {
-        var result = text
+    private func decodeHTMLEntities(_ mutableString: NSMutableString) {
         let entities: [(String, String)] = [
             ("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"),
             ("&quot;", "\""), ("&#39;", "'"), ("&nbsp;", " ")
         ]
         for (entity, replacement) in entities {
-            result = result.replacingOccurrences(of: entity, with: replacement)
+            mutableString.replaceOccurrences(of: entity, with: replacement, options: .literal, range: NSRange(location: 0, length: mutableString.length))
         }
-        return result
     }
     
     private func generateSummary(_ text: String) -> String {
