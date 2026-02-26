@@ -293,65 +293,22 @@ extension CloudInferenceService {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    // Get token
-                    let token: String
-                    do {
-                        token = try await keyManager.retrieveToken(for: configuration.provider)
-                    } catch {
-                        continuation.finish(throwing: CloudInferenceError.noTokenAvailable)
-                        return
-                    }
-                    
-                    // Build request with streaming headers
-                    let request = try buildStreamingRequest(
+                    // Prepare request (get token, build request)
+                    let request = try await prepareStreamingRequest(
                         messages: messages,
-                        configuration: configuration,
-                        token: token
+                        configuration: configuration
                     )
                     
                     // Perform streaming request
                     let (stream, response) = try await urlSession.bytes(for: request)
                     
-                    guard let httpResponse = response as? HTTPURLResponse else {
-                        continuation.finish(throwing: CloudInferenceError.invalidResponse)
-                        return
-                    }
-                    
-                    guard httpResponse.statusCode == 200 else {
-                        if httpResponse.statusCode == 429 {
-                            let retryAfter = httpResponse.allHeaderFields["Retry-After"] as? String
-                            let delay = retryAfter.flatMap { TimeInterval($0) }
-                            continuation.yield(.error(.rateLimited(retryAfter: delay)))
-                        }
-                        continuation.finish(throwing: CloudInferenceError.apiError(
-                            httpResponse.statusCode,
-                            "Streaming failed"
-                        ))
-                        return
-                    }
-                    
-                    // Parse SSE stream
-                    let parser = SSEParser()
-                    var buffer = Data()
-                    
-                    for try await byte in stream {
-                        buffer.append(byte)
-                        
-                        // Check for line ending
-                        if byte == 10 { // \n
-                            if let line = String(data: buffer, encoding: .utf8) {
-                                if let event = parseSSELine(line, parser: parser, provider: configuration.provider) {
-                                    continuation.yield(event)
-                                    
-                                    if case .finish = event {
-                                        continuation.finish()
-                                        return
-                                    }
-                                }
-                            }
-                            buffer.removeAll()
-                        }
-                    }
+                    // Process response and stream events
+                    try await processStreamingResponse(
+                        stream: stream,
+                        response: response,
+                        configuration: configuration,
+                        continuation: continuation
+                    )
                     
                     continuation.finish()
                     
@@ -368,6 +325,71 @@ extension CloudInferenceService {
         }
     }
     
+    private func prepareStreamingRequest(
+        messages: [CloudMessage],
+        configuration: CloudRequestConfiguration
+    ) async throws -> URLRequest {
+        // Get token
+        let token: String
+        do {
+            token = try await keyManager.retrieveToken(for: configuration.provider)
+        } catch {
+            throw CloudInferenceError.noTokenAvailable
+        }
+
+        // Build request with streaming headers
+        return try buildStreamingRequest(
+            messages: messages,
+            configuration: configuration,
+            token: token
+        )
+    }
+
+    private func processStreamingResponse(
+        stream: URLSession.AsyncBytes,
+        response: URLResponse,
+        configuration: CloudRequestConfiguration,
+        continuation: AsyncThrowingStream<StreamEvent, Error>.Continuation
+    ) async throws {
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw CloudInferenceError.invalidResponse
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            if httpResponse.statusCode == 429 {
+                let retryAfter = httpResponse.allHeaderFields["Retry-After"] as? String
+                let delay = retryAfter.flatMap { TimeInterval($0) }
+                continuation.yield(.error(.rateLimited(retryAfter: delay)))
+            }
+            throw CloudInferenceError.apiError(
+                httpResponse.statusCode,
+                "Streaming failed"
+            )
+        }
+
+        // Parse SSE stream
+        let parser = SSEParser()
+        var buffer = Data()
+
+        for try await byte in stream {
+            buffer.append(byte)
+
+            // Check for line ending
+            if byte == 10 { // \n
+                if let line = String(data: buffer, encoding: .utf8) {
+                    if let event = parseSSELine(line, parser: parser, provider: configuration.provider) {
+                        continuation.yield(event)
+
+                        if case .finish = event {
+                            return
+                        }
+                    }
+                }
+                buffer.removeAll()
+            }
+        }
+    }
+
     private func parseSSELine(_ line: String, parser: SSEParser, provider: CloudProvider) -> StreamEvent? {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         
