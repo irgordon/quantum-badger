@@ -461,10 +461,7 @@ public struct InputSanitizer: Sendable {
         _ input: String,
         allowedCharacters: CharacterSet = .alphanumerics
     ) -> String {
-        return input.unicodeScalars
-            .filter { allowedCharacters.contains($0) }
-            .map { String($0) }
-            .joined()
+        return String(input.unicodeScalars.filter { allowedCharacters.contains($0) })
     }
     
     /// Escape special regex characters in a string
