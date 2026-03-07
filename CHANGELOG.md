@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Code Health**: Refactored `generateStreaming` in `CloudStreaming.swift` to reduce complexity by extracting request preparation and response processing into helper methods.
 
 ### Fixed
+- **Security**: Added Cross-Site Request Forgery (CSRF) protection to the OAuth flow in `OnboardingViewModel` by generating and verifying a `state` parameter during authentication.
 - **Performance**: Reduced high memory usage during model downloads by switching from `URLSession.shared.data(from:)` to `URLSession.shared.download(from:)`. This ensures large files are streamed to disk instead of being fully loaded into RAM.
 - **Performance**: Optimized HTML sanitization in `WebBrowserService` by replacing copy-heavy string operations with in-place `NSMutableString` modifications, reducing memory allocations from O(N) to O(1) per document.
 
