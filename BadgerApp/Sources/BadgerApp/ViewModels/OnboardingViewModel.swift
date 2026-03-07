@@ -75,6 +75,7 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
     private let modelsViewModel: ModelsViewModel
     private var webAuthSession: ASWebAuthenticationSession?
     private var pkceVerifier: String?
+    private var oauthState: String?
     
     // MARK: - Errors
     
@@ -243,7 +244,10 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
         let pkce = generatePKCEPair()
         pkceVerifier = pkce.verifier
 
-        guard let authURL = URL(string: "https://platform.openai.com/auth?client_id=\(clientId)&redirect_uri=\(redirectUri)&scope=\(scope)&response_type=code&code_challenge=\(pkce.challenge)&code_challenge_method=S256") else {
+        let state = generateOAuthState()
+        oauthState = state
+
+        guard let authURL = URL(string: "https://platform.openai.com/auth?client_id=\(clientId)&redirect_uri=\(redirectUri)&scope=\(scope)&response_type=code&code_challenge=\(pkce.challenge)&code_challenge_method=S256&state=\(state)") else {
             showError(.authenticationFailed(provider: .openAI, reason: "Invalid URL"))
             return
         }
@@ -261,7 +265,10 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
         let pkce = generatePKCEPair()
         pkceVerifier = pkce.verifier
 
-        guard let authURL = URL(string: "https://console.anthropic.com/oauth/authorize?client_id=\(clientId)&redirect_uri=\(redirectUri)&response_type=code&code_challenge=\(pkce.challenge)&code_challenge_method=S256") else {
+        let state = generateOAuthState()
+        oauthState = state
+
+        guard let authURL = URL(string: "https://console.anthropic.com/oauth/authorize?client_id=\(clientId)&redirect_uri=\(redirectUri)&response_type=code&code_challenge=\(pkce.challenge)&code_challenge_method=S256&state=\(state)") else {
             showError(.authenticationFailed(provider: .anthropic, reason: "Invalid URL"))
             return
         }
@@ -280,7 +287,10 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
         let pkce = generatePKCEPair()
         pkceVerifier = pkce.verifier
 
-        guard let authURL = URL(string: "https://accounts.google.com/o/oauth2/v2/auth?client_id=\(clientId)&redirect_uri=\(redirectUri)&scope=\(scope)&response_type=code&code_challenge=\(pkce.challenge)&code_challenge_method=S256") else {
+        let state = generateOAuthState()
+        oauthState = state
+
+        guard let authURL = URL(string: "https://accounts.google.com/o/oauth2/v2/auth?client_id=\(clientId)&redirect_uri=\(redirectUri)&scope=\(scope)&response_type=code&code_challenge=\(pkce.challenge)&code_challenge_method=S256&state=\(state)") else {
             showError(.authenticationFailed(provider: .google, reason: "Invalid URL"))
             return
         }
@@ -368,13 +378,28 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
     }
     
     private func handleAuthenticationCallback(url: URL, provider: CloudProvider) async {
-        // Extract authorization code from URL
+        // Extract authorization code and state from URL
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: true),
               let code = components.queryItems?.first(where: { $0.name == "code" })?.value else {
             showError(.authenticationFailed(provider: provider, reason: "Invalid response"))
             return
         }
         
+        // Verify state to prevent CSRF
+        if let returnedState = components.queryItems?.first(where: { $0.name == "state" })?.value {
+            guard returnedState == oauthState else {
+                showError(.authenticationFailed(provider: provider, reason: "State mismatch. Possible CSRF attack."))
+                pkceVerifier = nil
+                oauthState = nil
+                return
+            }
+        } else {
+            showError(.authenticationFailed(provider: provider, reason: "Missing state parameter in response."))
+            pkceVerifier = nil
+            oauthState = nil
+            return
+        }
+
         // Exchange code for token
         do {
             guard let clientId = configuredOAuthClientID(for: provider) else {
@@ -400,8 +425,9 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
             showError(.authenticationFailed(provider: provider, reason: error.localizedDescription))
         }
 
-        // Clear PKCE verifier after use
+        // Clear PKCE verifier and state after use
         pkceVerifier = nil
+        oauthState = nil
     }
     
     public func disconnectProvider(_ provider: CloudProvider) {
@@ -530,7 +556,17 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
         return tokenResponse.access_token
     }
 
-    // MARK: - PKCE Helper
+    // MARK: - Security Helpers
+
+    private func generateOAuthState() -> String {
+        var buffer = [UInt8](repeating: 0, count: 32)
+        _ = SecRandomCopyBytes(kSecRandomDefault, buffer.count, &buffer)
+        return Data(buffer).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+            .trimmingCharacters(in: .whitespaces)
+    }
 
     private struct PKCEPair {
         let verifier: String
