@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import OSLog
 import BadgerCore
 import BadgerRuntime
 
@@ -18,6 +19,7 @@ extension Notification.Name {
 
 public enum BadgerApp {
     public static let version = "0.1.1"
+    private static let logger = Logger(subsystem: "com.quantumbadger.app", category: "BadgerApp")
     
     /// Initializes the core runtime services.
     /// Must be called early in the app lifecycle.
@@ -29,7 +31,7 @@ public enum BadgerApp {
         let formatter = ResponseFormatter()
         try await formatter.cleanupOldFiles()
         
-        print("BadgerApp v\(version) initialized")
+        logger.info("BadgerApp v\(version) initialized")
     }
 }
 
@@ -134,6 +136,7 @@ extension BadgerApp {
 @main
 @MainActor
 public struct QuantumBadgerApp: App {
+    private static let logger = Logger(subsystem: "com.quantumbadger.app", category: "AppLifecycle")
     
     /// The shared app coordinator, initialized as StateObject for proper lifecycle management
     @StateObject private var coordinator = AppCoordinator.shared
@@ -158,7 +161,7 @@ public struct QuantumBadgerApp: App {
                 do {
                     try await BadgerApp.initialize()
                 } catch {
-                    print("CRITICAL BOOTSTRAP FAILURE: \(error)")
+                    Self.logger.fault("CRITICAL BOOTSTRAP FAILURE: \(error, privacy: .public)")
                     // In production, show error UI to user
                 }
             }
