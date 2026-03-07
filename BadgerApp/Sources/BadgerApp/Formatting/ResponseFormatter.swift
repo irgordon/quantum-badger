@@ -1,6 +1,70 @@
 import Foundation
 import BadgerCore
 
+// MARK: - Language Detector
+
+/// Detects the programming language of a given text content
+public struct LanguageDetector: Sendable {
+    public enum Language: String, CaseIterable, Sendable {
+        case swift
+        case python
+        case javascript
+        case json
+        case bash
+        case sql
+        case markdown
+
+        public var indicators: [String] {
+            switch self {
+            case .swift: return ["import Foundation", "func ", "var ", "let ", "class ", "struct "]
+            case .python: return ["import ", "def ", "class ", "print(", "if __name__"]
+            case .javascript: return ["const ", "let ", "function", "=>", "console.log"]
+            case .json: return ["{", "}", "[", "]", "\""]
+            case .bash: return ["#!/bin/bash", "echo ", "cd ", "ls ", "chmod "]
+            case .sql: return ["SELECT ", "INSERT ", "UPDATE ", "DELETE ", "FROM ", "WHERE "]
+            case .markdown: return ["# ", "## ", "### ", "- ", "* ", "> ", "[", "]("]
+            }
+        }
+
+        public var fileExtension: String {
+            switch self {
+            case .swift: return "swift"
+            case .python: return "py"
+            case .javascript: return "js"
+            case .json: return "json"
+            case .bash: return "sh"
+            case .sql: return "sql"
+            case .markdown: return "md"
+            }
+        }
+
+        public var shebang: String? {
+            switch self {
+            case .swift: return "#!/usr/bin/env swift"
+            case .python: return "#!/usr/bin/env python3"
+            case .bash: return "#!/bin/bash"
+            default: return nil
+            }
+        }
+    }
+
+    /// Detect the primary programming language in code
+    public static func detectPrimaryLanguage(in content: String) -> Language? {
+        var scores: [Language: Int] = [:]
+
+        for language in Language.allCases where language != .markdown {
+            let score = language.indicators.reduce(0) { count, indicator in
+                count + content.components(separatedBy: indicator).count - 1
+            }
+            if score > 0 {
+                scores[language] = score
+            }
+        }
+
+        return scores.max(by: { $0.value < $1.value })?.key
+    }
+}
+
 // MARK: - Format Detection Result
 
 /// Result of analyzing content format
@@ -39,17 +103,6 @@ public actor ResponseFormatter {
     private static let tablePatterns = [
         #"\|[^\n]+\|"#,  // Pipe-delimited
         #"^\s*[-|]+\s*$"#  // Markdown table separator
-    ]
-    
-    /// Programming language detection
-    private static let languageIndicators: [String: [String]] = [
-        "swift": ["import Foundation", "func ", "var ", "let ", "class ", "struct "],
-        "python": ["import ", "def ", "class ", "print(", "if __name__"],
-        "javascript": ["const ", "let ", "function", "=>", "console.log"],
-        "json": ["{", "}", "[", "]", "\""],
-        "bash": ["#!/bin/bash", "echo ", "cd ", "ls ", "chmod "],
-        "sql": ["SELECT ", "INSERT ", "UPDATE ", "DELETE ", "FROM ", "WHERE "],
-        "markdown": ["# ", "## ", "### ", "- ", "* ", "> ", "[", "]("]
     ]
     
     // MARK: - Properties
@@ -132,17 +185,17 @@ public actor ResponseFormatter {
         }
         
         // Check for markdown
-        let containsMarkdown = ResponseFormatter.languageIndicators["markdown"]?.contains { indicator in
+        let containsMarkdown = LanguageDetector.Language.markdown.indicators.contains { indicator in
             content.contains(indicator)
-        } ?? false
+        }
         
         // Detect primary language if code is present
-        let detectedLanguage = detectPrimaryLanguage(in: content)
+        let detectedLanguage = LanguageDetector.detectPrimaryLanguage(in: content)
         
         // Determine recommended format
         let recommendedFormat: FormatDetectionResult.OutputFormat
         if let language = detectedLanguage, containsCodeBlocks || containsInlineCode {
-            recommendedFormat = .codeFile(language: language)
+            recommendedFormat = .codeFile(language: language.rawValue)
         } else if containsMarkdown || containsTable {
             recommendedFormat = .markdownFile
         } else {
@@ -156,22 +209,6 @@ public actor ResponseFormatter {
             estimatedCharacterCount: characterCount,
             recommendedFormat: recommendedFormat
         )
-    }
-    
-    /// Detect the primary programming language in code
-    private func detectPrimaryLanguage(in content: String) -> String? {
-        var scores: [String: Int] = [:]
-        
-        for (language, indicators) in ResponseFormatter.languageIndicators where language != "markdown" {
-            let score = indicators.reduce(0) { count, indicator in
-                count + content.components(separatedBy: indicator).count - 1
-            }
-            if score > 0 {
-                scores[language] = score
-            }
-        }
-        
-        return scores.max(by: { $0.value < $1.value })?.key
     }
     
     // MARK: - File Creation Logic
@@ -277,12 +314,8 @@ public actor ResponseFormatter {
         var formatted = ""
         
         // Add shebang if appropriate
-        if language == "swift" {
-            formatted = "#!/usr/bin/env swift\n\n"
-        } else if language == "python" {
-            formatted = "#!/usr/bin/env python3\n\n"
-        } else if language == "bash" {
-            formatted = "#!/bin/bash\n\n"
+        if let langEnum = LanguageDetector.Language(rawValue: language), let shebang = langEnum.shebang {
+            formatted = "\(shebang)\n\n"
         }
         
         formatted += content
@@ -294,16 +327,8 @@ public actor ResponseFormatter {
     }
     
     private func fileExtensionForLanguage(_ language: String) -> String {
-        switch language {
-        case "swift": return "swift"
-        case "python": return "py"
-        case "javascript": return "js"
-        case "json": return "json"
-        case "bash", "shell": return "sh"
-        case "sql": return "sql"
-        case "markdown": return "md"
-        default: return "txt"
-        }
+        if language == "shell" { return "sh" } // Fallback for specific string case from previous code
+        return LanguageDetector.Language(rawValue: language)?.fileExtension ?? "txt"
     }
     
     private func addMetadataToFile(
