@@ -1,4 +1,5 @@
 import Foundation
+import Metal
 import Testing
 @testable import BadgerRuntime
 
@@ -10,8 +11,46 @@ struct HardwareMonitorTests {
         let monitor = VRAMMonitor()
         let isAvailable = await monitor.isAvailable()
         
-        // On Apple Silicon Macs, this should be true
-        #expect(isAvailable == true || isAvailable == false) // Just verify it doesn't crash
+        // Assert consistency with system device creation
+        let systemDevice = MTLCreateSystemDefaultDevice()
+        #expect(isAvailable == (systemDevice != nil))
+    }
+
+    @Test("VRAM Monitor live logic")
+    func testVRAMMonitorLiveLogic() async throws {
+        let monitor = VRAMMonitor()
+        let isAvailable = await monitor.isAvailable()
+        let status = await monitor.getCurrentStatus()
+        let recommendedSize = await monitor.getRecommendedMaxWorkingSetSize()
+
+        #expect(status.recommendedMaxWorkingSetSize == recommendedSize)
+
+        if isAvailable {
+            #expect(recommendedSize > 0)
+
+            // Test canFitModel
+            #expect(await monitor.canFitModel(requiredBytes: 0) == true)
+            #expect(await monitor.canFitModel(requiredBytes: .max) == false)
+
+            // Test estimateMaxModelSize
+            let estimatedMax = await monitor.estimateMaxModelSize()
+            let availableVRAM = status.availableVRAM
+            let buffer: UInt64 = 1536 * 1024 * 1024 // 1.5GB buffer
+
+            if availableVRAM > buffer {
+                #expect(estimatedMax == availableVRAM - buffer)
+            } else {
+                #expect(estimatedMax == 0)
+            }
+
+            // Test getRecommendedQuantization
+            let recommendedQuant = try await monitor.getRecommendedQuantization()
+            #expect(recommendedQuant == status.recommendedQuantization)
+        } else {
+            #expect(recommendedSize == 0)
+            #expect(await monitor.canFitModel(requiredBytes: 1) == false)
+            #expect(await monitor.estimateMaxModelSize() == 0)
+        }
     }
     
     @Test("VRAM Status calculation")
@@ -85,10 +124,36 @@ struct HardwareMonitorTests {
     @Test("VRAM Monitor model recommendations")
     func testModelRecommendations() async throws {
         let monitor = VRAMMonitor()
+        let status = await monitor.getCurrentStatus()
+        let availableGB = Double(status.availableVRAM) / (1024 * 1024 * 1024)
+
+        let recommendedClass = await monitor.recommendModelClass()
+        let batchSize = await monitor.getOptimalBatchSize()
+
+        // Verify consistency with VRAM thresholds in VRAMMonitor.swift
+        switch availableGB {
+        case 16...:
+            #expect(recommendedClass == .phi4)
+        case 10..<16:
+            #expect(recommendedClass == .llama31)
+        case 6..<10:
+            #expect(recommendedClass == .mistral)
+        case 4..<6:
+            #expect(recommendedClass == .qwen25)
+        default:
+            #expect(recommendedClass == .gemma2)
+        }
         
-        // Just verify these don't crash
-        let _ = await monitor.recommendModelClass()
-        let _ = await monitor.getOptimalBatchSize()
+        switch availableGB {
+        case 24...:
+            #expect(batchSize == 8)
+        case 16..<24:
+            #expect(batchSize == 4)
+        case 8..<16:
+            #expect(batchSize == 1)
+        default:
+            #expect(batchSize == 1)
+        }
     }
     
     @Test("Thermal Guard initial state")
@@ -154,12 +219,17 @@ struct HardwareMonitorTests {
     
     @Test("Static VRAM check")
     func testStaticVRAMCheck() async throws {
-        // This is a static method, should not crash
+        // Assert consistency with system device creation
+        let systemDevice = MTLCreateSystemDefaultDevice()
         let hasVRAM = VRAMMonitor.hasSufficientVRAM()
-        #expect(hasVRAM == true || hasVRAM == false)
         
-        // Device name might be nil on simulators or non-Metal devices
-        let deviceName = VRAMMonitor.getDeviceName()
-        #expect(deviceName != nil || deviceName == nil)
+        if let device = systemDevice {
+            let expectedHasVRAM = device.recommendedMaxWorkingSetSize >= 5 * 1024 * 1024 * 1024
+            #expect(hasVRAM == expectedHasVRAM)
+            #expect(VRAMMonitor.getDeviceName() == device.name)
+        } else {
+            #expect(hasVRAM == false)
+            #expect(VRAMMonitor.getDeviceName() == nil)
+        }
     }
 }
