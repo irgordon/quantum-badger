@@ -372,12 +372,35 @@ public actor WebBrowserService {
     }
     
     private func decodeHTMLEntities(_ mutableString: NSMutableString) {
-        let entities: [(String, String)] = [
-            ("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"),
-            ("&quot;", "\""), ("&#39;", "'"), ("&nbsp;", " ")
+        let entities: [String: String] = [
+            "&amp;": "&", "&lt;": "<", "&gt;": ">",
+            "&quot;": "\"", "&#39;": "'", "&nbsp;": " "
         ]
-        for (entity, replacement) in entities {
-            mutableString.replaceOccurrences(of: entity, with: replacement, options: .literal, range: NSRange(location: 0, length: mutableString.length))
+
+        var searchRange = NSRange(location: 0, length: mutableString.length)
+        while true {
+            let ampRange = mutableString.range(of: "&", options: .literal, range: searchRange)
+            if ampRange.location == NSNotFound { break }
+
+            var foundEntity = false
+            for (entity, replacement) in entities {
+                let entityLen = entity.utf16.count
+                if ampRange.location + entityLen <= mutableString.length {
+                    let compareRange = NSRange(location: ampRange.location, length: entityLen)
+                    if mutableString.substring(with: compareRange) == entity {
+                        mutableString.replaceCharacters(in: compareRange, with: replacement)
+                        searchRange.location = ampRange.location + replacement.utf16.count
+                        searchRange.length = mutableString.length - searchRange.location
+                        foundEntity = true
+                        break
+                    }
+                }
+            }
+
+            if !foundEntity {
+                searchRange.location = ampRange.location + 1
+                searchRange.length = mutableString.length - searchRange.location
+            }
         }
     }
     
