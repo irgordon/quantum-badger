@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import AuthenticationServices
+import CryptoKit
 import BadgerCore
 import BadgerRuntime
 
@@ -73,6 +74,7 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
     private let keyManager: KeyManager
     private let modelsViewModel: ModelsViewModel
     private var webAuthSession: ASWebAuthenticationSession?
+    private var pkceVerifier: String?
     
     // MARK: - Errors
     
@@ -238,7 +240,10 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
         let redirectUri = "com.quantumbadger://oauth/callback"
         let scope = "api"
         
-        guard let authURL = URL(string: "https://platform.openai.com/auth?client_id=\(clientId)&redirect_uri=\(redirectUri)&scope=\(scope)&response_type=code") else {
+        let pkce = generatePKCEPair()
+        pkceVerifier = pkce.verifier
+
+        guard let authURL = URL(string: "https://platform.openai.com/auth?client_id=\(clientId)&redirect_uri=\(redirectUri)&scope=\(scope)&response_type=code&code_challenge=\(pkce.challenge)&code_challenge_method=S256") else {
             showError(.authenticationFailed(provider: .openAI, reason: "Invalid URL"))
             return
         }
@@ -253,7 +258,10 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
         }
         let redirectUri = "com.quantumbadger://oauth/callback"
         
-        guard let authURL = URL(string: "https://console.anthropic.com/oauth/authorize?client_id=\(clientId)&redirect_uri=\(redirectUri)&response_type=code") else {
+        let pkce = generatePKCEPair()
+        pkceVerifier = pkce.verifier
+
+        guard let authURL = URL(string: "https://console.anthropic.com/oauth/authorize?client_id=\(clientId)&redirect_uri=\(redirectUri)&response_type=code&code_challenge=\(pkce.challenge)&code_challenge_method=S256") else {
             showError(.authenticationFailed(provider: .anthropic, reason: "Invalid URL"))
             return
         }
@@ -269,7 +277,10 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
         let redirectUri = "com.quantumbadger://oauth/callback"
         let scope = "https://www.googleapis.com/auth/generative-language.retriever"
         
-        guard let authURL = URL(string: "https://accounts.google.com/o/oauth2/v2/auth?client_id=\(clientId)&redirect_uri=\(redirectUri)&scope=\(scope)&response_type=code") else {
+        let pkce = generatePKCEPair()
+        pkceVerifier = pkce.verifier
+
+        guard let authURL = URL(string: "https://accounts.google.com/o/oauth2/v2/auth?client_id=\(clientId)&redirect_uri=\(redirectUri)&scope=\(scope)&response_type=code&code_challenge=\(pkce.challenge)&code_challenge_method=S256") else {
             showError(.authenticationFailed(provider: .google, reason: "Invalid URL"))
             return
         }
@@ -364,16 +375,33 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
             return
         }
         
-        // Exchange code for token (simplified - in production, do this server-side)
-        let token = "oauth_\(code)_\(provider.rawValue.lowercased())"
-        
-        // Store token in Keychain
+        // Exchange code for token
         do {
+            guard let clientId = configuredOAuthClientID(for: provider) else {
+                showError(.authenticationFailed(provider: provider, reason: "Client ID not found"))
+                return
+            }
+
+            let redirectUri = "com.quantumbadger://oauth/callback"
+
+            let token = try await exchangeCodeForToken(
+                code: code,
+                provider: provider,
+                clientId: clientId,
+                redirectUri: redirectUri
+            )
+
+            // Store token in Keychain
             try await keyManager.storeToken(token, for: provider)
             connectedProviders.insert(provider)
+        } catch let error as OnboardingError {
+            showError(error)
         } catch {
-            showError(.tokenStorageFailed)
+            showError(.authenticationFailed(provider: provider, reason: error.localizedDescription))
         }
+
+        // Clear PKCE verifier after use
+        pkceVerifier = nil
     }
     
     public func disconnectProvider(_ provider: CloudProvider) {
@@ -444,6 +472,92 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
     
     public var progressPercentage: Double {
         Double(currentStep.rawValue) / Double(OnboardingStep.allCases.count - 1)
+    }
+
+    // MARK: - Token Exchange
+
+    private func exchangeCodeForToken(
+        code: String,
+        provider: CloudProvider,
+        clientId: String,
+        redirectUri: String
+    ) async throws -> String {
+        let tokenURL: URL
+        switch provider {
+        case .openAI:
+            tokenURL = URL(string: "https://api.openai.com/v1/oauth/token")!
+        case .anthropic:
+            tokenURL = URL(string: "https://api.anthropic.com/v1/oauth/token")!
+        case .google:
+            tokenURL = URL(string: "https://oauth2.googleapis.com/token")!
+        case .applePCC:
+            throw OnboardingError.authenticationFailed(provider: provider, reason: "PCC does not use OAuth token exchange")
+        }
+
+        guard let verifier = pkceVerifier else {
+            throw OnboardingError.authenticationFailed(provider: provider, reason: "Missing PKCE verifier")
+        }
+
+        var request = URLRequest(url: tokenURL)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+
+        let bodyItems = [
+            URLQueryItem(name: "grant_type", value: "authorization_code"),
+            URLQueryItem(name: "code", value: code),
+            URLQueryItem(name: "redirect_uri", value: redirectUri),
+            URLQueryItem(name: "client_id", value: clientId),
+            URLQueryItem(name: "code_verifier", value: verifier)
+        ]
+
+        var components = URLComponents()
+        components.queryItems = bodyItems
+        request.httpBody = components.query?.data(using: .utf8)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode) else {
+            let errorDetail = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw OnboardingError.authenticationFailed(provider: provider, reason: "Token exchange failed: \(errorDetail)")
+        }
+
+        struct TokenResponse: Decodable {
+            let access_token: String
+        }
+
+        let tokenResponse = try JSONDecoder().decode(TokenResponse.self, from: data)
+        return tokenResponse.access_token
+    }
+
+    // MARK: - PKCE Helper
+
+    private struct PKCEPair {
+        let verifier: String
+        let challenge: String
+    }
+
+    private func generatePKCEPair() -> PKCEPair {
+        var buffer = [UInt8](repeating: 0, count: 32)
+        _ = SecRandomCopyBytes(kSecRandomDefault, buffer.count, &buffer)
+        let verifier = Data(buffer).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+            .trimmingCharacters(in: .whitespaces)
+
+        guard let data = verifier.data(using: .utf8) else {
+            return PKCEPair(verifier: verifier, challenge: verifier)
+        }
+
+        let hash = SHA256.hash(data: data)
+        let challenge = Data(hash).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+            .trimmingCharacters(in: .whitespaces)
+
+        return PKCEPair(verifier: verifier, challenge: challenge)
     }
 }
 
