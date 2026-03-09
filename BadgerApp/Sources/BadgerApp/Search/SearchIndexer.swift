@@ -19,6 +19,8 @@ public struct IndexedItem: Sendable, Identifiable {
     public let id: String
     public let query: String
     public let response: String
+    public let lowercasedQuery: String
+    public let lowercasedResponse: String
     public let source: ExecutionContext.CommandSource
     public let timestamp: Date
     public let category: InteractionCategory
@@ -62,6 +64,8 @@ public struct IndexedItem: Sendable, Identifiable {
         self.id = id
         self.query = query
         self.response = response
+        self.lowercasedQuery = query.lowercased()
+        self.lowercasedResponse = response.lowercased()
         self.source = source
         self.timestamp = timestamp
         self.category = category
@@ -374,8 +378,8 @@ public actor SearchIndexer {
         let lowercasedQuery = query.lowercased()
         
         let matches = recentItems.filter { item in
-            item.query.lowercased().contains(lowercasedQuery) ||
-            item.response.lowercased().contains(lowercasedQuery)
+            item.lowercasedQuery.contains(lowercasedQuery) ||
+            item.lowercasedResponse.contains(lowercasedQuery)
         }
         
         return matches.prefix(limit).map { item in
@@ -756,7 +760,7 @@ extension SearchIndexer {
     public func searchQueries(matching prefix: String, limit: Int = 10) -> [String] {
         let lowercasedPrefix = prefix.lowercased()
         return recentItems
-            .filter { $0.query.lowercased().hasPrefix(lowercasedPrefix) }
+            .filter { $0.lowercasedQuery.hasPrefix(lowercasedPrefix) }
             .prefix(limit)
             .map { $0.query }
     }
