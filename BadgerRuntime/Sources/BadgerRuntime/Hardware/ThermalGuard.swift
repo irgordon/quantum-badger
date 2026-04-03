@@ -85,8 +85,29 @@ public protocol ThermalMonitorDelegate: AnyObject, Sendable {
 
 // MARK: - Thermal Guard
 
+public protocol ThermalGuardProtocol: Sendable {
+    func getCurrentStatus() async -> ThermalStatus
+    func isUnderThermalStress() async -> Bool
+    func shouldThrottle() async -> Bool
+    func shouldSuspend() async -> Bool
+    func getRecommendedAction() async -> ThermalAction
+    func getStateHistory() async -> [ThermalStateChange]
+    func getThermalState() async -> SystemState.ThermalState
+    func createSystemState(
+        ramAvailable: UInt64,
+        ramTotal: UInt64,
+        batteryState: SystemState.BatteryState,
+        batteryLevel: Double?
+    ) async -> SystemState
+    func startMonitoring() async
+    func stopMonitoring() async
+    func checkThermalState() async
+    func addDelegate(_ delegate: ThermalMonitorDelegate) async -> UUID
+    func removeDelegate(_ id: UUID) async
+}
+
 /// Actor responsible for monitoring and managing thermal state
-public actor ThermalGuard {
+public actor ThermalGuard: ThermalGuardProtocol {
     
     // MARK: - Properties
     

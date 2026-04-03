@@ -133,6 +133,8 @@ public enum AuditLogError: Error, Sendable {
 public actor AuditLogService {
     
     private let configuration: AuditLogConfiguration
+    private let decoder: JSONDecoder
+    private let encoder: JSONEncoder
     private var lastHash: String
     private var currentLogFile: URL
     private var isInitialized: Bool = false
@@ -143,6 +145,15 @@ public actor AuditLogService {
         self.configuration = configuration
         self.lastHash = String(repeating: "0", count: 64) // Genesis hash
         self.currentLogFile = configuration.logDirectory.appendingPathComponent("audit.log")
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        self.decoder = decoder
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = .sortedKeys
+        self.encoder = encoder
     }
     
     /// Initialize the log directory and verify/load existing chain
@@ -201,7 +212,7 @@ public actor AuditLogService {
             
             for line in lines {
                 guard let data = line.data(using: .utf8),
-                      let event = try? JSONDecoder().decode(AuditEvent.self, from: data) else {
+                      let event = try? decoder.decode(AuditEvent.self, from: data) else {
                     continue
                 }
                 
@@ -234,7 +245,7 @@ public actor AuditLogService {
             
             for line in lines {
                 guard let data = line.data(using: .utf8) else { continue }
-                if let event = try? JSONDecoder().decode(AuditEvent.self, from: data) {
+                if let event = try? decoder.decode(AuditEvent.self, from: data) {
                     events.append(event)
                 }
             }
@@ -247,11 +258,13 @@ public actor AuditLogService {
     /// - Parameter destination: URL to export logs to
     public func exportLogs(to destination: URL) async throws {
         let events = try await getAllEvents()
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
         
-        let data = try encoder.encode(events)
+        // Custom formatting for export
+        let exportEncoder = JSONEncoder()
+        exportEncoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        exportEncoder.dateEncodingStrategy = .iso8601
+
+        let data = try exportEncoder.encode(events)
         try data.write(to: destination)
     }
     
@@ -283,17 +296,13 @@ public actor AuditLogService {
         
         if let lastLine = lines.last,
            let data = lastLine.data(using: .utf8),
-           let event = try? JSONDecoder().decode(AuditEvent.self, from: data) {
+           let event = try? decoder.decode(AuditEvent.self, from: data) {
             lastHash = event.hash
             currentLogFile = latestLog
         }
     }
     
     private func appendEvent(_ event: AuditEvent) async throws {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = .sortedKeys
-        
         let data = try encoder.encode(event)
         
         guard let jsonString = String(data: data, encoding: .utf8) else {

@@ -7,7 +7,7 @@ import BadgerRuntime
 public struct MainWindowView: View {
     @EnvironmentObject var coordinator: AppCoordinator
     
-    @State private var selectedTab: AppTab? = .chat
+    @State private var selectedTab: Tab? = .chat
     @State private var showingOnboarding = false
     @State private var showingSettings = false
     @State private var onboardingInitialStep: OnboardingViewModel.OnboardingStep = .welcome
@@ -17,10 +17,23 @@ public struct MainWindowView: View {
         ChatMessage(role: .system, content: "Quantum Badger initialized. Neural Engine ready.")
     ]
     
-    public enum AppTab: String, Identifiable, CaseIterable {
+    public enum Tab: String, Identifiable, CaseIterable {
+        case dashboard = "Dashboard"
         case chat = "Chat"
         case history = "History"
+        case models = "Models"
+        case settings = "Settings"
         public var id: String { rawValue }
+
+        public var icon: String {
+            switch self {
+            case .dashboard: return "gauge.with.dots.needle.67percent"
+            case .chat: return "message.fill"
+            case .history: return "clock.arrow.circlepath"
+            case .models: return "cpu"
+            case .settings: return "gear"
+            }
+        }
     }
     
     public init() {}
@@ -29,16 +42,21 @@ public struct MainWindowView: View {
         NavigationSplitView {
             SidebarView(
                 selectedTab: $selectedTab,
-                showingSettings: $showingSettings,
                 onClearConversation: clearConversation
             )
         } detail: {
             ZStack {
                 switch selectedTab {
+                case .dashboard:
+                    DashboardView()
                 case .chat:
                     ChatInterfaceView(messages: $chatMessages)
                 case .history:
                     HistoryView()
+                case .models:
+                    ModelsView()
+                case .settings:
+                    AppSettingsView()
                 case .none:
                     ContentUnavailableView("Select an Item", systemImage: "sidebar.left")
                 }
@@ -83,19 +101,16 @@ public struct MainWindowView: View {
 // MARK: - Sidebar View
 
 struct SidebarView: View {
-    @Binding var selectedTab: MainWindowView.AppTab?
-    @Binding var showingSettings: Bool
+    @Binding var selectedTab: MainWindowView.Tab?
     var onClearConversation: () -> Void
     
     var body: some View {
         List(selection: $selectedTab) {
             Section("Workspace") {
-                NavigationLink(value: MainWindowView.AppTab.chat) {
-                    Label("Chat", systemImage: "message.fill")
-                }
-                
-                NavigationLink(value: MainWindowView.AppTab.history) {
-                    Label("History", systemImage: "clock.arrow.circlepath")
+                ForEach(MainWindowView.Tab.allCases) { tab in
+                    NavigationLink(value: tab) {
+                        Label(tab.rawValue, systemImage: tab.icon)
+                    }
                 }
             }
         }
@@ -112,20 +127,6 @@ struct SidebarView: View {
                 }
                 .buttonStyle(.plain)
                 .padding(.top, 4)
-                
-                // Settings Button
-                Button {
-                    showingSettings = true
-                } label: {
-                    Label("Settings", systemImage: "gear")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 6)
-                        .padding(.horizontal, 8)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.borderless)
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(6)
             }
             .padding()
             .background(.thinMaterial)
@@ -325,15 +326,6 @@ struct ChatMessage: Identifiable, Sendable {
     }
 }
 
-// MARK: - History View (Placeholder)
-
-// TODO: Implement HistoryView to display past conversations.
-// This is currently a placeholder for the History tab.
-struct HistoryView: View {
-    var body: some View {
-        ContentUnavailableView("History", systemImage: "clock.arrow.circlepath", description: Text("Your past conversations will appear here. Coming soon."))
-    }
-}
 
 // MARK: - Preview
 
