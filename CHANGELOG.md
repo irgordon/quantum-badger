@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Feature**: Implemented functional `HistoryView` and `HistoryViewModel` to display and search past interactions.
+
+### Changed
+- **Code Health**: Refactored `MainWindowView` navigation to use a unified `Tab` enum, resolving naming inconsistencies in UI tests and adding support for Dashboard, Models, and Settings views.
 - **Testing**: Added exhaustive test cases for `CloudModelTier.defaultModel(for:)` to ensure correct provider-to-model mapping across all tiers and providers, including ApplePCC.
 
 ### Changed

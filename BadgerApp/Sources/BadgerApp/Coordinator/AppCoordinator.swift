@@ -410,6 +410,22 @@ public final class AppCoordinator: ObservableObject, Sendable {
         }
     }
     
+    // MARK: - History Retrieval
+
+    /// Retrieve recent interaction history from the index
+    /// - Parameter limit: Maximum number of history items to return
+    /// - Returns: Array of indexed history items
+    public func getRecentHistory(limit: Int = 20) async -> [IndexedItem] {
+        return await searchIndexer.getRecentItems(limit: limit)
+    }
+
+    /// Search for interactions matching the given query
+    /// - Parameter query: The search query string
+    /// - Returns: Array of matching search results
+    public func searchHistory(query: String) async throws -> [SearchResult] {
+        return try await searchIndexer.search(query: query)
+    }
+
     // MARK: - Indexing Policy
     
     private func shouldIndex(
