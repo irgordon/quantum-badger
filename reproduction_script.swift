@@ -6,7 +6,7 @@ import FoundationNetworking
 
 // Mock URL for a large file (e.g., 1GB)
 // In a real reproduction, this would point to a local server or a dummy file generator.
-let largeFileURL = URL(string: "http://localhost:8080/largefile.bin")!
+let largeFileURL = URL(string: "https://localhost:8080/largefile.bin")!
 let destinationURL = URL(fileURLWithPath: "downloaded_model.bin")
 
 func measureMemory(operation: () async throws -> Void) async throws {
