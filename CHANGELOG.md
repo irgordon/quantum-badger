@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improved `WebBrowserService` performance by optimizing HTML entity decoding to use a single-pass string scan.
 
 ### Fixed
+- **Security**: Fixed insecure HTTP download in `reproduction_script.swift` by switching to HTTPS.
 - **Security**: Fixed an insecure HTTP URL in `reproduction_script.swift` by updating it to HTTPS.
 - **Security**: Added Cross-Site Request Forgery (CSRF) protection to the OAuth flow in `OnboardingViewModel` by generating and verifying a `state` parameter during authentication.
 - **Performance**: Optimized `ModelsViewModel` to use `URLSession.shared.download(from:)` for all remote requests, reducing peak memory usage during model discovery and weight retrieval.
