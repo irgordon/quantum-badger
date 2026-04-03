@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Testing**: Added comprehensive unit tests for `VRAMMonitor` and `VRAMStatus` in `VRAMMemoryEstimationTests.swift`, covering model memory estimation, available VRAM calculation, and model recommendation logic.
+
 ### Changed
+- **Code Health**: Refactored `VRAMMonitor` in `VRAMMonitor.swift` to extract mathematical calculation logic into `nonisolated` helper methods, enabling hardware-independent unit testing.
 - **Code Health**: Refactored `ResponseFormatter.swift` by extracting hardcoded `languageIndicators` into a new `LanguageDetector` struct, improving structure and type safety.
 - **Code Health**: Refactored `generateStreaming` in `CloudStreaming.swift` to reduce complexity by extracting request preparation and response processing into helper methods.
 
