@@ -105,8 +105,21 @@ public enum QuantizationLevel: String, Sendable, CaseIterable {
 
 // MARK: - VRAM Monitor
 
+public protocol VRAMMonitorProtocol: Sendable {
+    func isAvailable() async -> Bool
+    func getCurrentStatus() async -> VRAMStatus
+    func getRecommendedMaxWorkingSetSize() async -> UInt64
+    func canFitModel(requiredBytes: UInt64) async -> Bool
+    func getRecommendedQuantization() async throws -> QuantizationLevel
+    func estimateMaxModelSize() async -> UInt64
+    func startMonitoring(callback: @escaping @Sendable (VRAMStatus) -> Void) async
+    func stopMonitoring() async
+    func recommendModelClass() async -> ModelClass
+    func getOptimalBatchSize() async -> Int
+}
+
 /// Actor responsible for monitoring VRAM usage on Apple Silicon
-public actor VRAMMonitor {
+public actor VRAMMonitor: VRAMMonitorProtocol {
     
     // MARK: - Properties
     

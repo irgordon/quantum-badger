@@ -163,5 +163,64 @@ struct CloudStreamingTests {
             #expect(Bool(false))
         }
     }
+
+    @Test("Parse OpenAI chunk with invalid JSON")
+    func testParseOpenAIChunkInvalidJSON() async throws {
+        let parser = SSEParser()
+        let data = "invalid json".data(using: .utf8)!
+        let event = parser.parseOpenAIChunk(data: data)
+        #expect(event == nil)
+    }
+
+    @Test("Parse OpenAI chunk with non-dictionary JSON")
+    func testParseOpenAIChunkNonDictionary() async throws {
+        let parser = SSEParser()
+        let data = "[1, 2, 3]".data(using: .utf8)!
+        let event = parser.parseOpenAIChunk(data: data)
+        #expect(event == nil)
+    }
+
+    @Test("Parse OpenAI chunk with valid content")
+    func testParseOpenAIChunkValidContent() async throws {
+        let parser = SSEParser()
+        let json = "{\"choices\": [{\"delta\": {\"content\": \"Hello\"}}]}"
+        let data = json.data(using: .utf8)!
+        let event = parser.parseOpenAIChunk(data: data)
+
+        if case .text(let text) = event {
+            #expect(text == "Hello")
+        } else {
+            #expect(Bool(false), "Expected text event")
+        }
+    }
+
+    @Test("Parse OpenAI chunk with finish reason")
+    func testParseOpenAIChunkFinishReason() async throws {
+        let parser = SSEParser()
+        let json = "{\"choices\": [{\"finish_reason\": \"stop\"}]}"
+        let data = json.data(using: .utf8)!
+        let event = parser.parseOpenAIChunk(data: data)
+
+        if case .finish(let reason) = event {
+            #expect(reason == "stop")
+        } else {
+            #expect(Bool(false), "Expected finish event")
+        }
+    }
+
+    @Test("Parse OpenAI chunk with usage")
+    func testParseOpenAIChunkUsage() async throws {
+        let parser = SSEParser()
+        let json = "{\"usage\": {\"prompt_tokens\": 10, \"completion_tokens\": 5}}"
+        let data = json.data(using: .utf8)!
+        let event = parser.parseOpenAIChunk(data: data)
+
+        if case .usage(let prompt, let completion) = event {
+            #expect(prompt == 10)
+            #expect(completion == 5)
+        } else {
+            #expect(Bool(false), "Expected usage event")
+        }
+    }
 }
 
