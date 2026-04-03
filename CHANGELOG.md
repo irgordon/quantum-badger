@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **Code Health**: Refactored `ModelsView.swift` by removing the redundant `openModelInFinder` function and delegating the action to `ModelsViewModel`, improving maintainability and reducing code duplication.
 - **Code Health**: Refactored `ResponseFormatter.swift` by extracting hardcoded `languageIndicators` into a new `LanguageDetector` struct, improving structure and type safety.
 - **Code Health**: Refactored `generateStreaming` in `CloudStreaming.swift` to reduce complexity by extracting request preparation and response processing into helper methods.
 
