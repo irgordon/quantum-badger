@@ -193,9 +193,16 @@ public actor VRAMMonitor: VRAMMonitorProtocol {
     /// Estimate the maximum model size that can be loaded
     public func estimateMaxModelSize() -> UInt64 {
         let status = getCurrentStatus()
+        return calculateMaxModelSize(availableVRAM: status.availableVRAM)
+    }
+
+    /// Calculate max model size from available VRAM
+    /// - Parameter availableVRAM: Available VRAM in bytes
+    /// - Returns: Estimated max model size in bytes
+    nonisolated public func calculateMaxModelSize(availableVRAM: UInt64) -> UInt64 {
         // Reserve 1.5GB buffer for OS overhead
         let buffer: UInt64 = 1536 * 1024 * 1024
-        return status.availableVRAM > buffer ? status.availableVRAM - buffer : 0
+        return availableVRAM > buffer ? availableVRAM - buffer : 0
     }
     
     /// Estimate model memory requirement
@@ -235,10 +242,16 @@ public actor VRAMMonitor: VRAMMonitorProtocol {
     // MARK: - Model Selection Helpers
     
     /// Recommend a model class based on available VRAM.
-    /// FIX: Adjusted thresholds to prevent OOM on 8GB machines.
     public func recommendModelClass() -> ModelClass {
         let status = getCurrentStatus()
-        let availableGB = Double(status.availableVRAM) / (1024 * 1024 * 1024)
+        return calculateRecommendedModelClass(availableVRAM: status.availableVRAM)
+    }
+
+    /// Calculate recommended model class from available VRAM
+    /// - Parameter availableVRAM: Available VRAM in bytes
+    /// - Returns: Recommended ModelClass
+    nonisolated public func calculateRecommendedModelClass(availableVRAM: UInt64) -> ModelClass {
+        let availableGB = Double(availableVRAM) / (1024 * 1024 * 1024)
         
         switch availableGB {
         case 16...:
@@ -257,7 +270,14 @@ public actor VRAMMonitor: VRAMMonitorProtocol {
     /// Get the optimal batch size for inference based on available VRAM
     public func getOptimalBatchSize() -> Int {
         let status = getCurrentStatus()
-        let availableGB = Double(status.availableVRAM) / (1024 * 1024 * 1024)
+        return calculateOptimalBatchSize(availableVRAM: status.availableVRAM)
+    }
+
+    /// Calculate optimal batch size from available VRAM
+    /// - Parameter availableVRAM: Available VRAM in bytes
+    /// - Returns: Recommended batch size
+    nonisolated public func calculateOptimalBatchSize(availableVRAM: UInt64) -> Int {
+        let availableGB = Double(availableVRAM) / (1024 * 1024 * 1024)
         
         // Conservative batching to maintain responsiveness
         switch availableGB {

@@ -5,9 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [v0.0.0]
 
 ### Added
+- **Testing**: Added comprehensive unit tests for `VRAMMonitor` and `VRAMStatus` in `VRAMMemoryEstimationTests.swift`, covering model memory estimation, available VRAM calculation, and model recommendation logic.
+
+### Changed
+- **Code Health**: Refactored `VRAMMonitor` in `VRAMMonitor.swift` to extract mathematical calculation logic into `nonisolated` helper methods, enabling hardware-independent unit testing.
 - **Feature**: Implemented functional `HistoryView` and `HistoryViewModel` to display and search past interactions.
 
 ### Changed
