@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Testing**: Added exhaustive test cases for `CloudModelTier.defaultModel(for:)` to ensure correct provider-to-model mapping across all tiers and providers, including ApplePCC.
 
 ### Changed
+- **Code Health**: Refactored `ModelsView.swift` by removing the redundant `openModelInFinder` function and delegating the action to `ModelsViewModel`, improving maintainability and reducing code duplication.
 - **Performance**: Optimized `LanguageDetector.detectPrimaryLanguage` by using `ranges(of:).count` instead of `components(separatedBy:).count - 1`, eliminating O(N) memory allocations during language scoring.
 - **Performance**: Optimized `InputSanitizer.escapeForRegex` by using `NSRegularExpression.escapedPattern(for:)`, replacing an inefficient manual character loop.
 - **Code Health**: Refactored `ResponseFormatter.swift` by extracting hardcoded `languageIndicators` into a new `LanguageDetector` struct, improving structure and type safety.
