@@ -16,10 +16,17 @@ struct CloudServiceTests {
         // Test OpenAI defaults
         #expect(CloudModelTier.mini.defaultModel(for: .openAI) == "gpt-4o-mini")
         #expect(CloudModelTier.normal.defaultModel(for: .openAI) == "gpt-4o")
+        #expect(CloudModelTier.premium.defaultModel(for: .openAI) == "gpt-4o")
         
         // Test Google defaults
         #expect(CloudModelTier.mini.defaultModel(for: .google) == "gemini-1.5-flash")
         #expect(CloudModelTier.normal.defaultModel(for: .google) == "gemini-1.5-pro")
+        #expect(CloudModelTier.premium.defaultModel(for: .google) == "gemini-1.5-pro")
+
+        // Test ApplePCC defaults
+        #expect(CloudModelTier.mini.defaultModel(for: .applePCC) == "apple-llm")
+        #expect(CloudModelTier.normal.defaultModel(for: .applePCC) == "apple-llm")
+        #expect(CloudModelTier.premium.defaultModel(for: .applePCC) == "apple-llm")
     }
     
     @Test("Cloud Model Tier properties")

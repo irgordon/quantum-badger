@@ -468,17 +468,7 @@ public struct InputSanitizer: Sendable {
     /// - Parameter string: The string to escape
     /// - Returns: Escaped string safe for use in regex
     public static func escapeForRegex(_ string: String) -> String {
-        let specialCharacters = #"\^$.*+?()[]{}|"#
-        var escaped = ""
-        
-        for char in string {
-            if specialCharacters.contains(char) {
-                escaped.append("\\")
-            }
-            escaped.append(char)
-        }
-        
-        return escaped
+        return NSRegularExpression.escapedPattern(for: string)
     }
 }
 
