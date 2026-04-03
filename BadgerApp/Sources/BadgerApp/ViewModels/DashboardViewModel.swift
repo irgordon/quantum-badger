@@ -76,10 +76,10 @@ public final class DashboardViewModel {
     // History
     public var recentDecisions: [DecisionRecord] = []
     
-    private let shadowRouter: ShadowRouter
-    private let vramMonitor: VRAMMonitor
-    private let thermalGuard: ThermalGuard
-    private let policyManager: SecurityPolicyManager
+    private let shadowRouter: any ShadowRouterProtocol
+    private let vramMonitor: any VRAMMonitorProtocol
+    private let thermalGuard: any ThermalGuardProtocol
+    private let policyManager: any SecurityPolicyManagerProtocol
     
     private var updateTimer: Timer?
     
@@ -101,10 +101,10 @@ public final class DashboardViewModel {
     // MARK: - Initialization
     
     public init(
-        shadowRouter: ShadowRouter = ShadowRouter(),
-        vramMonitor: VRAMMonitor = VRAMMonitor(),
-        thermalGuard: ThermalGuard = ThermalGuard(),
-        policyManager: SecurityPolicyManager = SecurityPolicyManager()
+        shadowRouter: any ShadowRouterProtocol = ShadowRouter(),
+        vramMonitor: any VRAMMonitorProtocol = VRAMMonitor(),
+        thermalGuard: any ThermalGuardProtocol = ThermalGuard(),
+        policyManager: any SecurityPolicyManagerProtocol = SecurityPolicyManager()
     ) {
         self.shadowRouter = shadowRouter
         self.vramMonitor = vramMonitor

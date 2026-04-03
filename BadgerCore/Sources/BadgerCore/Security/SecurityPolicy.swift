@@ -100,8 +100,17 @@ public struct SecurityPolicy: Sendable, Codable, Equatable {
 
 // MARK: - Global Policy Manager
 
+/// Protocol for the security policy manager to support mocking
+public protocol SecurityPolicyManagerProtocol: Sendable {
+    func getPolicy() async -> SecurityPolicy
+    func updatePolicy(_ policy: SecurityPolicy) async
+    func enableLockdown() async
+    func disableLockdown() async
+    func canPerformRemoteOperations() async -> Bool
+}
+
 /// Actor responsible for managing the current security policy in a thread-safe manner
-public actor SecurityPolicyManager {
+public actor SecurityPolicyManager: SecurityPolicyManagerProtocol {
     
     private var currentPolicy: SecurityPolicy
     
