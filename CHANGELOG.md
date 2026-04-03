@@ -7,17 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Feature**: Implemented functional `HistoryView` and `HistoryViewModel` to display and search past interactions.
+
+### Changed
+- **Code Health**: Refactored `MainWindowView` navigation to use a unified `Tab` enum, resolving naming inconsistencies in UI tests and adding support for Dashboard, Models, and Settings views.
+- **Testing**: Added exhaustive test cases for `CloudModelTier.defaultModel(for:)` to ensure correct provider-to-model mapping across all tiers and providers, including ApplePCC.
+
 ### Changed
 - **Code Health**: Refactored `OnboardingView.swift` by extracting the model information card into a reusable `ModelCard` component, improving maintainability and reducing UI code duplication.
+- **Code Health**: Refactored `ModelsView.swift` by removing the redundant `openModelInFinder` function and delegating the action to `ModelsViewModel`, improving maintainability and reducing code duplication.
+- **Performance**: Optimized `LanguageDetector.detectPrimaryLanguage` by using `ranges(of:).count` instead of `components(separatedBy:).count - 1`, eliminating O(N) memory allocations during language scoring.
+- **Performance**: Optimized `InputSanitizer.escapeForRegex` by using `NSRegularExpression.escapedPattern(for:)`, replacing an inefficient manual character loop.
 - **Code Health**: Refactored `ResponseFormatter.swift` by extracting hardcoded `languageIndicators` into a new `LanguageDetector` struct, improving structure and type safety.
 - **Code Health**: Refactored `generateStreaming` in `CloudStreaming.swift` to reduce complexity by extracting request preparation and response processing into helper methods.
+- **Performance**: Optimized `AuditLogService` by caching `JSONDecoder` and `JSONEncoder` instances as actor-private properties. This eliminates redundant $O(N)$ allocations during log processing and ensures consistent date handling.
 
 ### Changed
 - Improved `WebBrowserService` performance by optimizing HTML entity decoding to use a single-pass string scan.
 
 ### Fixed
+- **Security**: Fixed an insecure HTTP URL in `reproduction_script.swift` by updating it to HTTPS.
 - **Security**: Added Cross-Site Request Forgery (CSRF) protection to the OAuth flow in `OnboardingViewModel` by generating and verifying a `state` parameter during authentication.
-- **Performance**: Reduced high memory usage during model downloads by switching from `URLSession.shared.data(from:)` to `URLSession.shared.download(from:)`. This ensures large files are streamed to disk instead of being fully loaded into RAM.
+- **Performance**: Optimized `ModelsViewModel` to use `URLSession.shared.download(from:)` for all remote requests, reducing peak memory usage during model discovery and weight retrieval.
+- **Performance**: Parallelized model downloads in `ModelsViewModel` using `withThrowingTaskGroup` to improve throughput.
 - **Performance**: Optimized HTML sanitization in `WebBrowserService` by replacing copy-heavy string operations with in-place `NSMutableString` modifications, reducing memory allocations from O(N) to O(1) per document.
 
 ## [1.0.6]
