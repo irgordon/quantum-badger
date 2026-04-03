@@ -71,6 +71,49 @@ public struct OnboardingView: View {
     }
 }
 
+
+struct ModelCard: View {
+    let title: String
+    let specs: String
+    let description: String
+    let icon: String
+    let isSelected: Bool
+    let onSelect: () -> Void
+
+    var body: some View {
+        HStack(spacing: 16) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.blue.opacity(0.1))
+                    .frame(width: 64, height: 64)
+
+                Image(systemName: icon)
+                    .font(.title2)
+                    .foregroundStyle(.blue)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.headline)
+                Text(specs)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Button(isSelected ? "Selected" : "Select") {
+                onSelect()
+            }
+            .buttonStyle(.automatic)
+            .disabled(isSelected)
+        }
+    }
+}
+
 // MARK: - Welcome Step
 
 struct WelcomeStep: View {
@@ -283,36 +326,14 @@ struct LocalModelsStep: View {
                         .foregroundStyle(.blue)
                 }
                 
-                HStack(spacing: 16) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.blue.opacity(0.1))
-                            .frame(width: 64, height: 64)
-                        
-                        Image(systemName: "cpu")
-                            .font(.title2)
-                            .foregroundStyle(.blue)
-                    }
-                    
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Qwen 2.5")
-                            .font(.headline)
-                        Text("7B parameters • 4.5 GB")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text("Great balance of speed and capability")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    
-                    Spacer()
-                    
-                    Button(viewModel.selectedModelsToDownload.contains(viewModel.recommendedModel) ? "Selected" : "Select") {
-                        viewModel.selectRecommendedModel()
-                    }
-                    .buttonStyle(.automatic)
-                    .disabled(viewModel.selectedModelsToDownload.contains(viewModel.recommendedModel))
-                }
+                ModelCard(
+                    title: "Qwen 2.5",
+                    specs: "7B parameters • 4.5 GB",
+                    description: "Great balance of speed and capability",
+                    icon: "cpu",
+                    isSelected: viewModel.selectedModelsToDownload.contains(viewModel.recommendedModel),
+                    onSelect: { viewModel.selectRecommendedModel() }
+                )
             }
             .padding()
             .background(.ultraThinMaterial)
