@@ -54,7 +54,7 @@ public struct LanguageDetector: Sendable {
 
         for language in Language.allCases where language != .markdown {
             let score = language.indicators.reduce(0) { count, indicator in
-                count + content.components(separatedBy: indicator).count - 1
+                count + content.ranges(of: indicator).count
             }
             if score > 0 {
                 scores[language] = score
