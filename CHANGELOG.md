@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **Code Health**: Refactored `ResponseFormatter.swift` by extracting hardcoded `languageIndicators` into a new `LanguageDetector` struct, improving structure and type safety.
 - **Code Health**: Refactored `generateStreaming` in `CloudStreaming.swift` to reduce complexity by extracting request preparation and response processing into helper methods.
+- **Performance**: Optimized `AuditLogService` by caching `JSONDecoder` and `JSONEncoder` instances as actor-private properties. This eliminates redundant $O(N)$ allocations during log processing and ensures consistent date handling.
 
 ### Changed
 - Improved `WebBrowserService` performance by optimizing HTML entity decoding to use a single-pass string scan.
