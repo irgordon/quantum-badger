@@ -168,20 +168,21 @@ public struct PrivacyEgressFilter: Sendable {
         
         var result = text
         
-        // FIX: Sort in reverse order (highest index first) to modify string safely.
+        // Sort in reverse order (highest index first) to modify string safely.
         // This prevents replacements from invalidating indices of subsequent detections.
-        let reverseDetections = detections.sorted { $0.range.lowerBound > $1.range.lowerBound }
+        // Since detectSensitiveData already returns sorted detections, we simply reverse.
+        let reverseDetections = detections.reversed()
         
-        var lastLowerBound: String.Index?
+        var lastProcessedLowerBound: String.Index?
         
         for detection in reverseDetections {
             // Simple overlap handling: Skip if this detection overlaps with a previously processed (higher index) one.
-            if let last = lastLowerBound, detection.range.upperBound > last {
+            if let last = lastProcessedLowerBound, detection.range.upperBound > last {
                 continue
             }
             
             result.replaceSubrange(detection.range, with: detection.type.redactionPlaceholder)
-            lastLowerBound = detection.range.lowerBound
+            lastProcessedLowerBound = detection.range.lowerBound
         }
         
         return result

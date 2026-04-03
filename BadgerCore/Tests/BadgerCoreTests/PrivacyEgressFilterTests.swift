@@ -123,4 +123,20 @@ struct PrivacyEgressFilterTests {
         #expect(PrivacyEgressFilter.isSafeForEgress(safe) == true)
         #expect(PrivacyEgressFilter.isSafeForEgress(unsafe) == false)
     }
+
+    @Test("Multiple redactions with varying lengths")
+    func testMultipleRedactionsWithVaryingLengths() async throws {
+        // "test@example.com" is 16 chars, replaced by "[REDACTED_EMAIL]" which is 16 chars
+        // "123-45-6789" is 11 chars, replaced by "[REDACTED_SSN]" which is 14 chars
+        // "555-123-4567" is 12 chars, replaced by "[REDACTED_PHONE]" which is 16 chars
+        let text = "Email: test@example.com, SSN: 123-45-6789, Phone: 555-123-4567"
+        let redacted = filter.redactSensitiveContent(text)
+
+        #expect(redacted == "Email: [REDACTED_EMAIL], SSN: [REDACTED_SSN], Phone: [REDACTED_PHONE]")
+
+        // Ensure no PII remains
+        #expect(redacted.contains("test@example.com") == false)
+        #expect(redacted.contains("123-45-6789") == false)
+        #expect(redacted.contains("555-123-4567") == false)
+    }
 }
