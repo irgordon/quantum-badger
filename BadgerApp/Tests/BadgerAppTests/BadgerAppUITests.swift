@@ -113,7 +113,7 @@ struct BadgerAppUITests {
     func testMainWindowTabs() async throws {
         let tabs = MainWindowView.Tab.allCases
         
-        #expect(tabs.count == 4)
+        #expect(tabs.count == 5)
         #expect(tabs.contains(.dashboard))
         #expect(tabs.contains(.models))
         #expect(tabs.contains(.history))
