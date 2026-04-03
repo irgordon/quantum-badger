@@ -230,7 +230,7 @@ public final class ModelsViewModel {
         }
     }
     
-    private func modelsDirectory() -> URL {
+    nonisolated private func modelsDirectory() -> URL {
         let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
@@ -254,33 +254,69 @@ public final class ModelsViewModel {
         }
         
         let totalFiles = files.count
-        for (index, file) in files.enumerated() {
-            try Task.checkCancellation()
-            let fileURL = huggingFaceResolveURL(repo: repo, file: file)
-            let destination = modelPath.appendingPathComponent(file)
-            try FileManager.default.createDirectory(
-                at: destination.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            let (tempURL, response) = try await URLSession.shared.download(from: fileURL)
-            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-                throw URLError(.badServerResponse)
-            }
-            if FileManager.default.fileExists(atPath: destination.path) {
-                try FileManager.default.removeItem(at: destination)
-            }
-            try FileManager.default.moveItem(at: tempURL, to: destination)
-            
-            let progress = Double(index + 1) / Double(totalFiles)
-            await MainActor.run {
-                self.updateDownloadState(
-                    for: modelClass,
-                    state: .downloading(
-                        progress: progress,
-                        bytesDownloaded: Int64(index + 1),
-                        totalBytes: Int64(totalFiles)
+
+        // Parallelize downloads with a limit to avoid resource exhaustion
+        try await withThrowingTaskGroup(of: Int64.self) { group in
+            // Limit concurrency to 4 simultaneous downloads
+            let maxConcurrentDownloads = 4
+            var filesProcessedCount: Int64 = 0
+
+            for (index, file) in files.enumerated() {
+                if index >= maxConcurrentDownloads {
+                    // Wait for a task to complete before adding another
+                    if let bytesCount = try await group.next() {
+                        filesProcessedCount += 1
+                        let progress = Double(filesProcessedCount) / Double(totalFiles)
+                        await MainActor.run {
+                            self.updateDownloadState(
+                                for: modelClass,
+                                state: .downloading(
+                                    progress: progress,
+                                    bytesDownloaded: filesProcessedCount,
+                                    totalBytes: Int64(totalFiles)
+                                )
+                            )
+                        }
+                    }
+                }
+
+                group.addTask {
+                    try Task.checkCancellation()
+                    let fileURL = self.huggingFaceResolveURL(repo: repo, file: file)
+                    let destination = modelPath.appendingPathComponent(file)
+                    try FileManager.default.createDirectory(
+                        at: destination.deletingLastPathComponent(),
+                        withIntermediateDirectories: true
                     )
-                )
+
+                    let (tempURL, response) = try await URLSession.shared.download(from: fileURL)
+                    guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                        throw URLError(.badServerResponse)
+                    }
+
+                    if FileManager.default.fileExists(atPath: destination.path) {
+                        try FileManager.default.removeItem(at: destination)
+                    }
+                    try FileManager.default.moveItem(at: tempURL, to: destination)
+
+                    return 1 // Signal completion of 1 file
+                }
+            }
+            
+            // Wait for remaining tasks to complete
+            while let _ = try await group.next() {
+                filesProcessedCount += 1
+                let progress = Double(filesProcessedCount) / Double(totalFiles)
+                await MainActor.run {
+                    self.updateDownloadState(
+                        for: modelClass,
+                        state: .downloading(
+                            progress: progress,
+                            bytesDownloaded: filesProcessedCount,
+                            totalBytes: Int64(totalFiles)
+                        )
+                    )
+                }
             }
         }
         
@@ -296,10 +332,13 @@ public final class ModelsViewModel {
     
     private func fetchDownloadableFiles(repo: String) async throws -> [String] {
         let apiURL = URL(string: "https://huggingface.co/api/models/\(repo)")!
-        let (data, response) = try await URLSession.shared.data(from: apiURL)
+        let (tempURL, response) = try await URLSession.shared.download(from: apiURL)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw URLError(.badServerResponse)
         }
+
+        // Use memory mapping for large JSON responses to reduce heap pressure
+        let data = try Data(contentsOf: tempURL, options: .mappedIfSafe)
         let model = try JSONDecoder().decode(HuggingFaceModelResponse.self, from: data)
         let allowedExtensions: Set<String> = ["json", "txt", "model", "safetensors", "tiktoken"]
         let disallowedPrefixes = [".", "README", "LICENSE", "NOTICE", ".gitattributes"]
@@ -308,7 +347,8 @@ public final class ModelsViewModel {
             .map(\.rfilename)
             .filter { name in
                 !disallowedPrefixes.contains { name.hasPrefix($0) }
-                && allowedExtensions.contains(URL(fileURLWithPath: name).pathExtension.lowercased())
+                // Optimization: avoid URL object allocations in filtering loop
+                && allowedExtensions.contains((name as NSString).pathExtension.lowercased())
             }
         
         if candidates.contains("config.json") {
@@ -317,7 +357,7 @@ public final class ModelsViewModel {
         return []
     }
     
-    private func huggingFaceResolveURL(repo: String, file: String) -> URL {
+    nonisolated private func huggingFaceResolveURL(repo: String, file: String) -> URL {
         URL(string: "https://huggingface.co/\(repo)/resolve/main/\(file)")!
     }
     

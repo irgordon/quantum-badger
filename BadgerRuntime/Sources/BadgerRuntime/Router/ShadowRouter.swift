@@ -105,7 +105,12 @@ public struct RoutingContext: Sendable {
 
 // MARK: - Shadow Router
 
-public actor ShadowRouter {
+public protocol ShadowRouterProtocol: Sendable {
+    func route(prompt: String) async throws -> RouterDecision
+    func quickRoute(prompt: String) async throws -> RouterDecision
+}
+
+public actor ShadowRouter: ShadowRouterProtocol {
     
     private let cloudService: CloudInferenceService
     private let vramMonitor: VRAMMonitor

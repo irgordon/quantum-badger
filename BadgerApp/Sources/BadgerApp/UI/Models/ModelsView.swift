@@ -281,6 +281,9 @@ public struct ModelsView: View {
                         },
                         onDelete: {
                             viewModel.deleteModel(modelInfo.modelClass)
+                        },
+                        onShowInFinder: {
+                            viewModel.openModelLocation(modelInfo.modelClass)
                         }
                     )
                 }
@@ -346,16 +349,7 @@ struct ModelDownloadRow: View {
     let onDownload: () -> Void
     let onCancel: () -> Void
     let onDelete: () -> Void
-    
-    private func openModelInFinder() {
-        let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first!
-        let modelsDirectory = appSupport.appendingPathComponent("QuantumBadger/Models")
-        let modelPath = modelsDirectory.appendingPathComponent(modelInfo.modelClass.rawValue)
-        NSWorkspace.shared.activateFileViewerSelecting([modelPath])
-    }
+    let onShowInFinder: () -> Void
     
     var body: some View {
         HStack(spacing: 16) {
@@ -419,7 +413,7 @@ struct ModelDownloadRow: View {
             VStack(alignment: .trailing, spacing: 8) {
                 if modelInfo.isDownloaded {
                     Menu {
-                        Button("Show in Finder", action: openModelInFinder)
+                        Button("Show in Finder", action: onShowInFinder)
                         Divider()
                         Button("Delete", role: .destructive, action: onDelete)
                     } label: {
