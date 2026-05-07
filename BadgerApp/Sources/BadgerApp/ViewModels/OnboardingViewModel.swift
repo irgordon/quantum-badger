@@ -85,6 +85,7 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
         case privacyPolicyRequired
         case networkError
         case cancelled
+        case randomnessFailed
         
         public var errorDescription: String? {
             switch self {
@@ -98,6 +99,8 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
                 return "Network connection issue. Please try again."
             case .cancelled:
                 return "Authentication was cancelled"
+            case .randomnessFailed:
+                return "Security Error: Failed to generate secure random data"
             }
         }
         
@@ -113,6 +116,8 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
                 return "Check your Wi-Fi connection and try again."
             case .cancelled:
                 return "You can skip this step and connect later in Settings."
+            case .randomnessFailed:
+                return "Please restart the app and try again. This is a critical security failure."
             }
         }
     }
@@ -241,18 +246,28 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
         let redirectUri = "com.quantumbadger://oauth/callback"
         let scope = "api"
         
-        let pkce = generatePKCEPair()
-        pkceVerifier = pkce.verifier
+        do {
+            let pkce = try generatePKCEPair()
+            pkceVerifier = pkce.verifier
 
-        let state = generateOAuthState()
-        oauthState = state
+            let state = try generateOAuthState()
+            oauthState = state
 
-        guard let authURL = URL(string: "https://platform.openai.com/auth?client_id=\(clientId)&redirect_uri=\(redirectUri)&scope=\(scope)&response_type=code&code_challenge=\(pkce.challenge)&code_challenge_method=S256&state=\(state)") else {
-            showError(.authenticationFailed(provider: .openAI, reason: "Invalid URL"))
-            return
+            guard let authURL = URL(string: "https://platform.openai.com/auth?client_id=\(clientId)&redirect_uri=\(redirectUri)&scope=\(scope)&response_type=code&code_challenge=\(pkce.challenge)&code_challenge_method=S256&state=\(state)") else {
+                showError(.authenticationFailed(provider: .openAI, reason: "Invalid URL"))
+                return
+            }
+
+            startWebAuthSession(url: authURL, callbackURLScheme: "com.quantumbadger", provider: .openAI)
+        } catch let error as OnboardingError {
+            showError(error)
+            isAuthenticating = false
+            currentAuthenticatingProvider = nil
+        } catch {
+            showError(.authenticationFailed(provider: .openAI, reason: error.localizedDescription))
+            isAuthenticating = false
+            currentAuthenticatingProvider = nil
         }
-        
-        startWebAuthSession(url: authURL, callbackURLScheme: "com.quantumbadger", provider: .openAI)
     }
     
     private func authenticateWithAnthropic() {
@@ -262,18 +277,28 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
         }
         let redirectUri = "com.quantumbadger://oauth/callback"
         
-        let pkce = generatePKCEPair()
-        pkceVerifier = pkce.verifier
+        do {
+            let pkce = try generatePKCEPair()
+            pkceVerifier = pkce.verifier
 
-        let state = generateOAuthState()
-        oauthState = state
+            let state = try generateOAuthState()
+            oauthState = state
 
-        guard let authURL = URL(string: "https://console.anthropic.com/oauth/authorize?client_id=\(clientId)&redirect_uri=\(redirectUri)&response_type=code&code_challenge=\(pkce.challenge)&code_challenge_method=S256&state=\(state)") else {
-            showError(.authenticationFailed(provider: .anthropic, reason: "Invalid URL"))
-            return
+            guard let authURL = URL(string: "https://console.anthropic.com/oauth/authorize?client_id=\(clientId)&redirect_uri=\(redirectUri)&response_type=code&code_challenge=\(pkce.challenge)&code_challenge_method=S256&state=\(state)") else {
+                showError(.authenticationFailed(provider: .anthropic, reason: "Invalid URL"))
+                return
+            }
+
+            startWebAuthSession(url: authURL, callbackURLScheme: "com.quantumbadger", provider: .anthropic)
+        } catch let error as OnboardingError {
+            showError(error)
+            isAuthenticating = false
+            currentAuthenticatingProvider = nil
+        } catch {
+            showError(.authenticationFailed(provider: .anthropic, reason: error.localizedDescription))
+            isAuthenticating = false
+            currentAuthenticatingProvider = nil
         }
-        
-        startWebAuthSession(url: authURL, callbackURLScheme: "com.quantumbadger", provider: .anthropic)
     }
     
     private func authenticateWithGoogle() {
@@ -284,18 +309,28 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
         let redirectUri = "com.quantumbadger://oauth/callback"
         let scope = "https://www.googleapis.com/auth/generative-language.retriever"
         
-        let pkce = generatePKCEPair()
-        pkceVerifier = pkce.verifier
+        do {
+            let pkce = try generatePKCEPair()
+            pkceVerifier = pkce.verifier
 
-        let state = generateOAuthState()
-        oauthState = state
+            let state = try generateOAuthState()
+            oauthState = state
 
-        guard let authURL = URL(string: "https://accounts.google.com/o/oauth2/v2/auth?client_id=\(clientId)&redirect_uri=\(redirectUri)&scope=\(scope)&response_type=code&code_challenge=\(pkce.challenge)&code_challenge_method=S256&state=\(state)") else {
-            showError(.authenticationFailed(provider: .google, reason: "Invalid URL"))
-            return
+            guard let authURL = URL(string: "https://accounts.google.com/o/oauth2/v2/auth?client_id=\(clientId)&redirect_uri=\(redirectUri)&scope=\(scope)&response_type=code&code_challenge=\(pkce.challenge)&code_challenge_method=S256&state=\(state)") else {
+                showError(.authenticationFailed(provider: .google, reason: "Invalid URL"))
+                return
+            }
+
+            startWebAuthSession(url: authURL, callbackURLScheme: "com.quantumbadger", provider: .google)
+        } catch let error as OnboardingError {
+            showError(error)
+            isAuthenticating = false
+            currentAuthenticatingProvider = nil
+        } catch {
+            showError(.authenticationFailed(provider: .google, reason: error.localizedDescription))
+            isAuthenticating = false
+            currentAuthenticatingProvider = nil
         }
-        
-        startWebAuthSession(url: authURL, callbackURLScheme: "com.quantumbadger", provider: .google)
     }
     
     private func startWebAuthSession(url: URL, callbackURLScheme: String, provider: CloudProvider) {
@@ -558,9 +593,12 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
 
     // MARK: - Security Helpers
 
-    private func generateOAuthState() -> String {
+    private func generateOAuthState() throws -> String {
         var buffer = [UInt8](repeating: 0, count: 32)
-        _ = SecRandomCopyBytes(kSecRandomDefault, buffer.count, &buffer)
+        let status = SecRandomCopyBytes(kSecRandomDefault, buffer.count, &buffer)
+        guard status == errSecSuccess else {
+            throw OnboardingError.randomnessFailed
+        }
         return Data(buffer).base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
@@ -573,9 +611,12 @@ public final class OnboardingViewModel: NSObject, ObservableObject {
         let challenge: String
     }
 
-    private func generatePKCEPair() -> PKCEPair {
+    private func generatePKCEPair() throws -> PKCEPair {
         var buffer = [UInt8](repeating: 0, count: 32)
-        _ = SecRandomCopyBytes(kSecRandomDefault, buffer.count, &buffer)
+        let status = SecRandomCopyBytes(kSecRandomDefault, buffer.count, &buffer)
+        guard status == errSecSuccess else {
+            throw OnboardingError.randomnessFailed
+        }
         let verifier = Data(buffer).base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
