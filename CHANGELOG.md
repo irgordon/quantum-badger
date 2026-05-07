@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Security**: Fixed insecure HTTP download in `reproduction_script.swift` by switching to HTTPS.
 - **Security**: Fixed an insecure HTTP URL in `reproduction_script.swift` by updating it to HTTPS.
 - **Security**: Added Cross-Site Request Forgery (CSRF) protection to the OAuth flow in `OnboardingViewModel` by generating and verifying a `state` parameter during authentication.
+- **Security**: Fixed insecure randomness in `OnboardingViewModel` by explicitly checking the return value of `SecRandomCopyBytes` when generating OAuth state and PKCE verifiers.
 - **Performance**: Optimized `ModelsViewModel` to use `URLSession.shared.download(from:)` for all remote requests, reducing peak memory usage during model discovery and weight retrieval.
 - **Performance**: Parallelized model downloads in `ModelsViewModel` using `withThrowingTaskGroup` to improve throughput.
 - **Performance**: Optimized HTML sanitization in `WebBrowserService` by replacing copy-heavy string operations with in-place `NSMutableString` modifications, reducing memory allocations from O(N) to O(1) per document.
