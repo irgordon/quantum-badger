@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [v0.0.0]
 
 ### Added
+- **Testing**: Added comprehensive unit tests for `OnboardingViewModel` in `OnboardingViewModelTests.swift`, covering navigation flow, privacy policy acceptance, model selection, and error handling.
 - **Testing**: Added comprehensive unit tests for `VRAMMonitor` and `VRAMStatus` in `VRAMMemoryEstimationTests.swift`, covering model memory estimation, available VRAM calculation, and model recommendation logic.
 
 ### Changed
