@@ -349,7 +349,7 @@ public actor AuditLogService {
             
             let formatter = ISO8601DateFormatter()
             let timestamp = formatter.string(from: Date())
-            let archivedName = "audit_\(timestamp).log"
+            let archivedName = "audit_\(timestamp)_\(UUID().uuidString).log"
             let archivedPath = configuration.logDirectory.appendingPathComponent(archivedName)
             
             try fileManager.moveItem(at: currentLogFile, to: archivedPath)

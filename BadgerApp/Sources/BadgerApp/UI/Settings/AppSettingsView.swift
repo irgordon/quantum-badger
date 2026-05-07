@@ -353,7 +353,7 @@ struct PrivacySettingsView: View {
         let formatter = ISO8601DateFormatter()
         let timestamp = formatter.string(from: Date())
             .replacingOccurrences(of: ":", with: "-")
-        let filename = "quantum-badger-audit-\(timestamp).json"
+        let filename = "quantum-badger-audit-\(timestamp)-\(UUID().uuidString).json"
         return downloads.appendingPathComponent(filename)
     }
     
