@@ -142,6 +142,7 @@ public actor HybridExecutionManager {
     private let cloudService: CloudInferenceService
     private let vramMonitor: VRAMMonitor
     private let thermalGuard: ThermalGuard
+    private let policyManager: any SecurityPolicyManagerProtocol
     private let auditService: AuditLogService
     private let clock: FunctionClock
     
@@ -156,17 +157,22 @@ public actor HybridExecutionManager {
         cloudService: CloudInferenceService? = nil,
         vramMonitor: VRAMMonitor? = nil,
         thermalGuard: ThermalGuard? = nil,
+        policyManager: (any SecurityPolicyManagerProtocol)? = nil,
         auditService: AuditLogService? = nil,
         clock: FunctionClock = SystemFunctionClock()
     ) {
         let vram = vramMonitor ?? VRAMMonitor()
         let thermal = thermalGuard ?? ThermalGuard()
         let cloud = cloudService ?? CloudInferenceService()
+        let policy = policyManager ?? SecurityPolicyManager()
+        let resolvedAuditService = auditService ?? AuditLogService()
         
         self.shadowRouter = shadowRouter ?? ShadowRouter(
             cloudService: cloud,
             vramMonitor: vram,
-            thermalGuard: thermal
+            thermalGuard: thermal,
+            policyManager: policy,
+            auditService: resolvedAuditService
         )
         self.localEngine = localEngine ?? LocalInferenceEngine(
             vramMonitor: vram,
@@ -175,7 +181,8 @@ public actor HybridExecutionManager {
         self.cloudService = cloud
         self.vramMonitor = vram
         self.thermalGuard = thermal
-        self.auditService = auditService ?? AuditLogService()
+        self.policyManager = policy
+        self.auditService = resolvedAuditService
         self.clock = clock
     }
     
@@ -312,6 +319,15 @@ public actor HybridExecutionManager {
         model: String,
         configuration: ExecutionConfiguration
     ) async throws -> String {
+        // SECURITY: Mandatory policy check before cloud inference
+        let policy = await policyManager.getPolicy()
+        guard policy.allowsRemoteOperations else {
+            throw ShadowRouterError.routingFailed("Cloud inference is disabled by execution policy.")
+        }
+        guard !policy.isLockdown else {
+            throw ShadowRouterError.routingFailed("Cloud inference is disabled in Lockdown mode.")
+        }
+
         notifyProgress(phase: .generating, percent: 0.6, message: "Generating via \(provider.rawValue)...")
         
         let result: CloudInferenceResult

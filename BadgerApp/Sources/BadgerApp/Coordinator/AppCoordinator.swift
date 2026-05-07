@@ -123,6 +123,7 @@ public final class AppCoordinator: ObservableObject, Sendable {
     private let responseFormatter: ResponseFormatter
     private let searchIndexer: SearchIndexer
     private let auditService: AuditLogService
+    private let policyManager: any SecurityPolicyManagerProtocol
     private let inputSanitizer: InputSanitizer
     private let clock: FunctionClock
     
@@ -135,12 +136,20 @@ public final class AppCoordinator: ObservableObject, Sendable {
         responseFormatter: ResponseFormatter? = nil,
         searchIndexer: SearchIndexer? = nil,
         auditService: AuditLogService? = nil,
+        policyManager: (any SecurityPolicyManagerProtocol)? = nil,
         clock: FunctionClock = SystemFunctionClock()
     ) {
-        self.executionManager = executionManager ?? HybridExecutionManager()
+        let resolvedPolicyManager = policyManager ?? SecurityPolicyManager()
+        let resolvedAuditService = auditService ?? AuditLogService()
+
+        self.policyManager = resolvedPolicyManager
+        self.auditService = resolvedAuditService
+        self.executionManager = executionManager ?? HybridExecutionManager(
+            policyManager: resolvedPolicyManager,
+            auditService: resolvedAuditService
+        )
         self.responseFormatter = responseFormatter ?? ResponseFormatter()
         self.searchIndexer = searchIndexer ?? SearchIndexer()
-        self.auditService = auditService ?? AuditLogService()
         self.inputSanitizer = InputSanitizer()
         self.clock = clock
     }
@@ -238,6 +247,13 @@ public final class AppCoordinator: ObservableObject, Sendable {
     ) async throws -> CommandExecutionResult {
         let start = clock.now()
         try await logCommandReceipt(command: command, context: context)
+
+        // SECURITY: Enforce Lockdown Policy at the start of the pipeline
+        let policy = await policyManager.getPolicy()
+        if policy.isLockdown && (context.source != .internalApp) {
+            throw AppCoordinatorError.securityViolation("System is in Lockdown mode. Remote commands are disabled.")
+        }
+
         let sanitized = try await sanitize(command: command, source: context.source)
         let execution = try await executeEngine(command: sanitized.command, context: context)
         let formatted = try await format(output: execution.text, source: context.source)
