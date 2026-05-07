@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Testing**: Added comprehensive unit tests for `VRAMMonitor` and `VRAMStatus` in `VRAMMemoryEstimationTests.swift`, covering model memory estimation, available VRAM calculation, and model recommendation logic.
 
 ### Changed
+- **Code Health**: Removed a stale "FIX" comment in `VRAMMonitor.swift` regarding the replacement of `Timer` with `Task`.
 - **Code Health**: Refactored `VRAMMonitor` in `VRAMMonitor.swift` to extract mathematical calculation logic into `nonisolated` helper methods, enabling hardware-independent unit testing.
 - **Feature**: Implemented functional `HistoryView` and `HistoryViewModel` to display and search past interactions.
 
