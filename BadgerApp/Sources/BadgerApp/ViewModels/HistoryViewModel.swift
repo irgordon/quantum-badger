@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import OSLog
 import BadgerCore
 
 // MARK: - History View Model
@@ -9,6 +10,8 @@ import BadgerCore
 public final class HistoryViewModel {
 
     // MARK: - Properties
+
+    private let logger = Logger(subsystem: "com.quantumbadger.app", category: "History")
 
     public var historyItems: [IndexedItem] = []
     public var searchResults: [SearchResult] = []
@@ -49,7 +52,7 @@ public final class HistoryViewModel {
         do {
             searchResults = try await coordinator.searchHistory(query: searchText)
         } catch {
-            print("Search failed: \(error.localizedDescription)")
+            logger.error("Search failed: \(error.localizedDescription, privacy: .public)")
             searchResults = []
         }
     }
