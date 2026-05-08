@@ -127,7 +127,6 @@ public actor VRAMMonitor: VRAMMonitorProtocol {
     private var lastStatus: VRAMStatus?
     private var updateInterval: TimeInterval
     
-    // FIX: Replaced unused Timer with Task handle for proper cancellation
     private var monitoringTask: Task<Void, Never>?
     
     // MARK: - Initialization
