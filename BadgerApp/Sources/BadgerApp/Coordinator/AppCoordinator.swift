@@ -123,6 +123,8 @@ public final class AppCoordinator: ObservableObject, Sendable {
     private let responseFormatter: ResponseFormatter
     private let searchIndexer: SearchIndexer
     private let auditService: AuditLogService
+    private let rateLimiter: RateLimiter
+    private let policyManager: any SecurityPolicyManagerProtocol
     private let inputSanitizer: InputSanitizer
     private let clock: FunctionClock
     
@@ -135,12 +137,24 @@ public final class AppCoordinator: ObservableObject, Sendable {
         responseFormatter: ResponseFormatter? = nil,
         searchIndexer: SearchIndexer? = nil,
         auditService: AuditLogService? = nil,
+        rateLimiter: RateLimiter? = nil,
+        policyManager: (any SecurityPolicyManagerProtocol)? = nil,
         clock: FunctionClock = SystemFunctionClock()
     ) {
-        self.executionManager = executionManager ?? HybridExecutionManager()
+        let resolvedPolicyManager = policyManager ?? SecurityPolicyManager()
+        let resolvedAuditService = auditService ?? AuditLogService()
+        let resolvedRateLimiter = rateLimiter ?? RateLimiter(clock: clock)
+
+        self.policyManager = resolvedPolicyManager
+        self.auditService = resolvedAuditService
+        self.rateLimiter = resolvedRateLimiter
+        self.executionManager = executionManager ?? HybridExecutionManager(
+            policyManager: resolvedPolicyManager,
+            rateLimiter: resolvedRateLimiter,
+            auditService: resolvedAuditService
+        )
         self.responseFormatter = responseFormatter ?? ResponseFormatter()
         self.searchIndexer = searchIndexer ?? SearchIndexer()
-        self.auditService = auditService ?? AuditLogService()
         self.inputSanitizer = InputSanitizer()
         self.clock = clock
     }
@@ -236,8 +250,18 @@ public final class AppCoordinator: ObservableObject, Sendable {
         command: String,
         context: ExecutionContext
     ) async throws -> CommandExecutionResult {
+        // SECURITY: Global pipeline rate limit
+        try await rateLimiter.consume(bucket: .localExecution) // Using localExecution as a proxy for 'overall commands'
+
         let start = clock.now()
         try await logCommandReceipt(command: command, context: context)
+
+        // SECURITY: Enforce Lockdown Policy at the start of the pipeline
+        let policy = await policyManager.getPolicy()
+        if policy.isLockdown && (context.source != .internalApp) {
+            throw AppCoordinatorError.securityViolation("System is in Lockdown mode. Remote commands are disabled.")
+        }
+
         let sanitized = try await sanitize(command: command, source: context.source)
         let execution = try await executeEngine(command: sanitized.command, context: context)
         let formatted = try await format(output: execution.text, source: context.source)
@@ -280,10 +304,13 @@ public final class AppCoordinator: ObservableObject, Sendable {
         command: String,
         context: ExecutionContext
     ) async throws {
+        // SECURITY: Sanitize command before logging to avoid PII leakage in audit logs
+        let sanitizedSummary = inputSanitizer.sanitize(String(command.prefix(100))).sanitized
+
         try await auditService.log(
             type: .remoteCommandReceived,
             source: context.source.rawValue,
-            details: "Command from \(context.source.rawValue): \(command.prefix(100))..."
+            details: "Command from \(context.source.rawValue): \(sanitizedSummary)..."
         )
     }
     

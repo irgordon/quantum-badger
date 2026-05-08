@@ -115,7 +115,7 @@ public actor ShadowRouter: ShadowRouterProtocol {
     private let cloudService: CloudInferenceService
     private let vramMonitor: VRAMMonitor
     private let thermalGuard: ThermalGuard
-    private let policyManager: SecurityPolicyManager
+    private let policyManager: any SecurityPolicyManagerProtocol
     private let inputSanitizer: InputSanitizer
     private let auditService: AuditLogService
     
@@ -126,7 +126,7 @@ public actor ShadowRouter: ShadowRouterProtocol {
         cloudService: CloudInferenceService = CloudInferenceService(),
         vramMonitor: VRAMMonitor = VRAMMonitor(),
         thermalGuard: ThermalGuard = ThermalGuard(),
-        policyManager: SecurityPolicyManager = SecurityPolicyManager(),
+        policyManager: any SecurityPolicyManagerProtocol = SecurityPolicyManager(),
         inputSanitizer: InputSanitizer = InputSanitizer(),
         auditService: AuditLogService = AuditLogService()
     ) {
@@ -210,6 +210,31 @@ public actor ShadowRouter: ShadowRouterProtocol {
     }
     
     private func performIntentAnalysis(prompt: String) async throws -> IntentAnalysisResult {
+        // 1. Perform local heuristic analysis first (PRIVACY-FIRST)
+        let localComplexity = PromptComplexity.assess(prompt: prompt)
+        let localResult = IntentAnalysisResult(
+            complexity: localComplexity,
+            intent: .undefined,
+            confidence: 0.7,
+            reasoning: "Local heuristic assessment",
+            piiDetected: false,
+            safetyFlags: []
+        )
+
+        // 2. Check if we should/can use cloud for deeper analysis
+        let policy = await policyManager.getPolicy()
+
+        // Only attempt cloud analysis if allowed by policy and not in lockdown
+        guard policy.allowsRemoteOperations && !policy.isLockdown else {
+            return localResult
+        }
+
+        // Cloud analysis is optional and requires explicit opt-in (here we check if tokens are even available)
+        // In a real implementation, this would check a 'allowCloudIntentAnalysis' user preference.
+        guard await cloudService.hasAnyProvider() else {
+            return localResult
+        }
+
         // SECURITY: Use JSON serialization to prevent injection attacks
         let promptData: [String: Any] = [
             "prompt": prompt,
@@ -218,16 +243,7 @@ public actor ShadowRouter: ShadowRouterProtocol {
         
         guard let promptJson = try? JSONSerialization.data(withJSONObject: promptData),
               let promptString = String(data: promptJson, encoding: .utf8) else {
-            // Fallback to local heuristic if serialization fails
-            let complexity = PromptComplexity.assess(prompt: prompt)
-            return IntentAnalysisResult(
-                complexity: complexity,
-                intent: .undefined,
-                confidence: 0.5,
-                reasoning: "Fallback (serialization error)",
-                piiDetected: false,
-                safetyFlags: []
-            )
+            return localResult
         }
         
         let analysisPrompt = """
@@ -244,29 +260,20 @@ public actor ShadowRouter: ShadowRouterProtocol {
             "piiDetected": false,
             "safetyFlags": []
         }
-        
-        Guidelines:
-        - Low: Simple questions, casual chat, basic tasks
-        - High: Multi-step reasoning, code, complex analysis
         """
         
         do {
-            // Dynamic provider selection with fallback
             let provider = await selectCloudProvider()
             let result = try await cloudService.generateMini(prompt: analysisPrompt, provider: provider)
             return try parseIntentAnalysis(result.text)
-        } catch CloudInferenceError.noTokenAvailable {
-            let complexity = PromptComplexity.assess(prompt: prompt)
-            return IntentAnalysisResult(
-                complexity: complexity,
-                intent: .undefined,
-                confidence: 0.5,
-                reasoning: "Fallback (no cloud token)",
-                piiDetected: false,
-                safetyFlags: []
-            )
         } catch {
-            throw ShadowRouterError.intentAnalysisFailed(error.localizedDescription)
+            // Log failure but return local result to maintain service
+            try? await auditService.log(
+                type: .shadowRouterDecision,
+                source: "ShadowRouter",
+                details: "Cloud intent analysis failed: \(error.localizedDescription). Falling back to local."
+            )
+            return localResult
         }
     }
     

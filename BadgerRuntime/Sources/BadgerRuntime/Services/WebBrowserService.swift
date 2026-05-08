@@ -112,6 +112,8 @@ public actor WebBrowserService {
     
     private let urlSession: URLSession
     private let securityPolicy: BrowserSecurityPolicy
+    private let policyManager: any SecurityPolicyManagerProtocol
+    private let rateLimiter: RateLimiter
     private let inputSanitizer: InputSanitizer
     private let privacyFilter: PrivacyEgressFilter
     private let auditService: AuditLogService
@@ -132,12 +134,16 @@ public actor WebBrowserService {
     
     public init(
         securityPolicy: BrowserSecurityPolicy = .default,
+        policyManager: any SecurityPolicyManagerProtocol = SecurityPolicyManager(),
+        rateLimiter: RateLimiter? = nil,
         inputSanitizer: InputSanitizer = InputSanitizer(),
         privacyFilter: PrivacyEgressFilter = PrivacyEgressFilter(),
         auditService: AuditLogService = AuditLogService(),
         clock: FunctionClock = SystemFunctionClock()
     ) {
         self.securityPolicy = securityPolicy
+        self.policyManager = policyManager
+        self.rateLimiter = rateLimiter ?? RateLimiter(clock: clock)
         self.inputSanitizer = inputSanitizer
         self.privacyFilter = privacyFilter
         self.auditService = auditService
@@ -272,6 +278,18 @@ public actor WebBrowserService {
     }
     
     private func performSecurityChecks(url: URL) async throws {
+        // SECURITY: Global policy check
+        let policy = await policyManager.getPolicy()
+        guard policy.allowsRemoteOperations else {
+            throw WebBrowserError.securityBlocked("Web access is disabled by execution policy.")
+        }
+        guard !policy.isLockdown else {
+            throw WebBrowserError.securityBlocked("Web access is disabled in Lockdown mode.")
+        }
+
+        // SECURITY: Rate limit web access
+        try await rateLimiter.consume(bucket: .webAccess)
+
         guard let host = url.host?.lowercased() else {
             throw WebBrowserError.securityBlocked("Invalid host")
         }
