@@ -159,6 +159,52 @@ private struct KeychainQueryFactory {
             kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom
         ]
     }
+
+    func symmetricKeyStoreQuery(tag: Data, keyData: Data) -> [String: Any] {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: "symmetric_key",
+            kSecAttrService as String: "com.quantumbadger.keys",
+            kSecAttrApplicationTag as String: tag,
+            kSecValueData as String: keyData,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+            kSecUseDataProtectionKeychain as String: true
+        ]
+        if let accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
+        return query
+    }
+
+    func symmetricKeyRetrieveQuery(tag: Data) -> [String: Any] {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: "symmetric_key",
+            kSecAttrService as String: "com.quantumbadger.keys",
+            kSecAttrApplicationTag as String: tag,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecUseDataProtectionKeychain as String: true
+        ]
+        if let accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
+        return query
+    }
+
+    func symmetricKeyDeleteQuery(tag: Data) -> [String: Any] {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: "symmetric_key",
+            kSecAttrService as String: "com.quantumbadger.keys",
+            kSecAttrApplicationTag as String: tag,
+            kSecUseDataProtectionKeychain as String: true
+        ]
+        if let accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
+        return query
+    }
 }
 
 // MARK: - Hardware Abstraction Layer
@@ -456,5 +502,57 @@ public actor KeyManager {
     /// - Returns: The decrypted data
     public func decrypt(data encryptedData: Data, using privateKey: SecKey) throws -> Data {
         try Cipher.perform(SecKeyCreateDecryptedData, on: privateKey, data: encryptedData)
+    }
+
+    // MARK: - Symmetric Key Management (Wrapped by Secure Enclave)
+
+    /// Gets or creates a symmetric key for the given identifier, protected by the Secure Enclave.
+    /// The symmetric key is stored in the Keychain, but can only be accessed if the device is unlocked.
+    /// To add an extra layer of protection, we wrap it using an asymmetric key from the Secure Enclave.
+    /// - Parameter identifier: Unique identifier for the key
+    /// - Returns: A symmetric key
+    public func getOrCreateSymmetricKey(identifier: String) async throws -> SymmetricKey {
+        let tag = try resolveTag(identifier)
+
+        // 1. Try to retrieve existing wrapped key
+        let retrieveQuery = factory.symmetricKeyRetrieveQuery(tag: tag)
+        do {
+            let result = try storageProvider.fetch(query: retrieveQuery)
+            guard let wrappedKeyData = result as? Data else {
+                throw KeyManagerError.invalidData
+            }
+
+            // Unwrap using Secure Enclave private key
+            let seKey = try await retrieveSecureEnclaveKey(identifier: identifier + ".wrapper")
+            let unwrappedData = try decrypt(data: wrappedKeyData, using: seKey.privateKey)
+            return SymmetricKey(data: unwrappedData)
+        } catch let error as KeyManagerError {
+            guard case .itemNotFound = error else { throw error }
+        }
+
+        // 2. Generate new key if not found
+        let newKey = Crypto.AESGCM.generateKey()
+        let keyData = newKey.withUnsafeBytes { Data($0) }
+
+        // 3. Create a Secure Enclave wrapper key
+        let seKey = try await generateSecureEnclaveKeyPair(identifier: identifier + ".wrapper")
+
+        // 4. Wrap the symmetric key with the SE public key
+        let wrappedData = try encrypt(data: keyData, using: seKey.publicKey)
+
+        // 5. Store the wrapped key
+        let storeQuery = factory.symmetricKeyStoreQuery(tag: tag, keyData: wrappedData)
+        try storageProvider.store(query: storeQuery)
+
+        return newKey
+    }
+
+    /// Deletes a symmetric key and its wrapper.
+    /// - Parameter identifier: Unique identifier for the key
+    public func deleteSymmetricKey(identifier: String) async throws {
+        let tag = try resolveTag(identifier)
+        let deleteQuery = factory.symmetricKeyDeleteQuery(tag: tag)
+        try? storageProvider.delete(query: deleteQuery)
+        try? await deleteSecureEnclaveKey(identifier: identifier + ".wrapper")
     }
 }

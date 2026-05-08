@@ -10,12 +10,7 @@ public struct SanitizationPattern: Sendable, Equatable {
     public let replacement: String
     public let severity: Severity
     
-    public enum Severity: String, Sendable, Codable {
-        case low = "Low"
-        case medium = "Medium"
-        case high = "High"
-        case critical = "Critical"
-    }
+    public typealias Severity = PrivacyRegistry.Pattern.Severity
     
     public init(
         name: String,
@@ -29,6 +24,13 @@ public struct SanitizationPattern: Sendable, Equatable {
         self.severity = severity
     }
     
+    public init(from pattern: PrivacyRegistry.Pattern) {
+        self.name = pattern.id
+        self.patternString = pattern.regex
+        self.replacement = pattern.replacement
+        self.severity = pattern.severity
+    }
+
     /// Compile the pattern string into a Regex
     public func compile() throws -> Regex<AnyRegexOutput> {
         return try Regex(patternString)
@@ -86,222 +88,19 @@ public struct InputSanitizer: Sendable {
     // MARK: - Default Patterns
     
     /// SQL Injection patterns
-    public static let sqlInjectionPatterns: [SanitizationPattern] = [
-        SanitizationPattern(
-            name: "SQL_UNION_INJECTION",
-            patternString: #"(?i)(?:union\s+select|union\s+all\s+select|union\s+distinct\s+select)"#,
-            replacement: "[REDACTED_SQL]",
-            severity: .critical
-        ),
-        SanitizationPattern(
-            name: "SQL_DROP_TABLE",
-            patternString: #"(?i)(?:drop\s+table|drop\s+database|delete\s+from|truncate\s+table)"#,
-            replacement: "[REDACTED_SQL]",
-            severity: .critical
-        ),
-        SanitizationPattern(
-            name: "SQL_INSERT_INJECTION",
-            patternString: #"(?i)(?:insert\s+into|update\s+.*\s+set)"#,
-            replacement: "[REDACTED_SQL]",
-            severity: .high
-        ),
-        SanitizationPattern(
-            name: "SQL_COMMENT",
-            patternString: #"(?i)(?:--|/\*|\*/|#)"#,
-            replacement: "[REDACTED_SQL]",
-            severity: .medium
-        ),
-        SanitizationPattern(
-            name: "SQL_OR_INJECTION",
-            patternString: #"(?i)(?:or\s+1\s*=\s*1|or\s+'[^']*'\s*=\s*'[^']*')"#,
-            replacement: "[REDACTED_SQL]",
-            severity: .critical
-        ),
-        SanitizationPattern(
-            name: "SQL_SLEEP",
-            patternString: #"(?i)(?:sleep\s*\(\s*\d+\s*\)|benchmark\s*\(\s*\d+\s*,)"#,
-            replacement: "[REDACTED_SQL]",
-            severity: .high
-        ),
-        SanitizationPattern(
-            name: "SQL_STACKED_QUERIES",
-            patternString: #"(?i)(?:;\s*(?:select|insert|update|delete|drop|create|alter))"#,
-            replacement: "[REDACTED_SQL]",
-            severity: .critical
-        )
-    ]
+    public static let sqlInjectionPatterns: [SanitizationPattern] = PrivacyRegistry.sqlInjectionPatterns.map { SanitizationPattern(from: $0) }
     
     /// Shell command injection patterns
-    public static let shellInjectionPatterns: [SanitizationPattern] = [
-        SanitizationPattern(
-            name: "SHELL_EXEC",
-            patternString: #"(?i)(?:\$\(|`|;\s*\b(?:bash|sh|zsh|python|ruby|perl)\b|\|\s*\b(?:bash|sh|zsh)\b)"#,
-            replacement: "[REDACTED_SHELL]",
-            severity: .critical
-        ),
-        SanitizationPattern(
-            name: "SHELL_REDIRECT",
-            patternString: #"(?i)(?:[0-9]*\s*>\s*(?:/dev/)?\w+|2>&1|&>\s*\w+)"#,
-            replacement: "[REDACTED_SHELL]",
-            severity: .high
-        ),
-        SanitizationPattern(
-            name: "SHELL_PIPE",
-            patternString: #"(?i)(?:\|\s*(?:cat|less|more|head|tail|grep|awk|sed|cut|sort|uniq|xargs|sh|bash|zsh))"#,
-            replacement: "[REDACTED_SHELL]",
-            severity: .high
-        ),
-        SanitizationPattern(
-            name: "SHELL_VARIABLE",
-            patternString: #"(?i)(?:\$\w+|\$\{[^}]+\}|\$\([^)]+\))"#,
-            replacement: "[REDACTED_SHELL]",
-            severity: .medium
-        ),
-        SanitizationPattern(
-            name: "SHELL_CHAIN",
-            patternString: #"(?i)(?:;\s*(?:rm|mv|cp|cat|echo|wget|curl|nc|netcat)\b|\|\||&&)"#,
-            replacement: "[REDACTED_SHELL]",
-            severity: .critical
-        ),
-        SanitizationPattern(
-            name: "SHELL_DOWNLOAD",
-            patternString: #"(?i)(?:wget\s+|curl\s+.*\s+-o\s+|curl\s+.*\s+--output\s+)"#,
-            replacement: "[REDACTED_SHELL]",
-            severity: .critical
-        ),
-        SanitizationPattern(
-            name: "SHELL_BACKTICKS",
-            patternString: #"`[^`]*`"#,
-            replacement: "[REDACTED_SHELL]",
-            severity: .critical
-        ),
-        SanitizationPattern(
-            name: "SHELL_SUBSHELL",
-            patternString: #"\$\([^)]*\)"#,
-            replacement: "[REDACTED_SHELL]",
-            severity: .critical
-        )
-    ]
+    public static let shellInjectionPatterns: [SanitizationPattern] = PrivacyRegistry.shellInjectionPatterns.map { SanitizationPattern(from: $0) }
     
     /// Path traversal patterns
-    public static let pathTraversalPatterns: [SanitizationPattern] = [
-        SanitizationPattern(
-            name: "PATH_TRAVERSAL",
-            patternString: #"(?:\.\./|\.\.\\|%2e%2e%2f|%2e%2e/|\.\./|%252e%252e%252f)"#,
-            replacement: "[REDACTED_PATH]",
-            severity: .critical
-        ),
-        SanitizationPattern(
-            name: "PATH_ABSOLUTE",
-            patternString: #"(?i)(?:/etc/passwd|/etc/shadow|/proc/self|/var/log|/private/etc|C:\\Windows|C:\\Program\s+Files)"#,
-            replacement: "[REDACTED_PATH]",
-            severity: .high
-        ),
-        SanitizationPattern(
-            name: "PATH_NULL_BYTE",
-            patternString: #"%00"#,
-            replacement: "[REDACTED_PATH]",
-            severity: .critical
-        ),
-        SanitizationPattern(
-            name: "PATH_ENCODED",
-            patternString: #"%2f|%5c|0x2f|0x5c"#,
-            replacement: "[REDACTED_PATH]",
-            severity: .high
-        )
-    ]
+    public static let pathTraversalPatterns: [SanitizationPattern] = PrivacyRegistry.pathTraversalPatterns.map { SanitizationPattern(from: $0) }
     
     /// XSS and HTML injection patterns
-    public static let xssPatterns: [SanitizationPattern] = [
-        SanitizationPattern(
-            name: "XSS_SCRIPT_TAG",
-            patternString: #"(?i)(?:<script[^>]*>.*?</script>|javascript:)"#,
-            replacement: "[REDACTED_XSS]",
-            severity: .critical
-        ),
-        SanitizationPattern(
-            name: "XSS_EVENT_HANDLER",
-            patternString: #"(?i)(?:on\w+\s*=\s*['\"]?)"#,
-            replacement: "[REDACTED_XSS]",
-            severity: .high
-        ),
-        SanitizationPattern(
-            name: "XSS_HTML_TAG",
-            patternString: #"(?i)(?:<iframe|<object|<embed|<form|<input|<button)"#,
-            replacement: "[REDACTED_XSS]",
-            severity: .high
-        ),
-        SanitizationPattern(
-            name: "XSS_DATA_URI",
-            patternString: #"(?i)(?:data:text/html|data:application/javascript)"#,
-            replacement: "[REDACTED_XSS]",
-            severity: .critical
-        )
-    ]
+    public static let xssPatterns: [SanitizationPattern] = PrivacyRegistry.xssPatterns.map { SanitizationPattern(from: $0) }
     
     /// PII (Personally Identifiable Information) patterns
-    public static let piiPatterns: [SanitizationPattern] = [
-        SanitizationPattern(
-            name: "PII_SSN",
-            patternString: #"\b\d{3}-\d{2}-\d{4}\b"#,
-            replacement: "[REDACTED_PII]",
-            severity: .critical
-        ),
-        SanitizationPattern(
-            name: "PII_CREDIT_CARD",
-            patternString: #"\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|3(?:0[0-5]|[68][0-9])[0-9]{11}|6(?:011|5[0-9]{2})[0-9]{12})\b"#,
-            replacement: "[REDACTED_PII]",
-            severity: .critical
-        ),
-        SanitizationPattern(
-            name: "PII_EMAIL",
-            patternString: #"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"#,
-            replacement: "[REDACTED_PII]",
-            severity: .high
-        ),
-        SanitizationPattern(
-            name: "PII_PHONE",
-            patternString: #"\b(?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}\b"#,
-            replacement: "[REDACTED_PII]",
-            severity: .high
-        ),
-        SanitizationPattern(
-            name: "PII_IP_ADDRESS",
-            patternString: #"\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b"#,
-            replacement: "[REDACTED_PII]",
-            severity: .medium
-        ),
-        SanitizationPattern(
-            name: "PII_MAC_ADDRESS",
-            patternString: #"\b(?:[0-9A-Fa-f]{2}[:-]){5}(?:[0-9A-Fa-f]{2})\b"#,
-            replacement: "[REDACTED_PII]",
-            severity: .medium
-        ),
-        SanitizationPattern(
-            name: "PII_API_KEY",
-            patternString: #"(?i)(?:api[_-]?key|apikey)\s*[:=]\s*['\"]?[a-zA-Z0-9_\-]{8,}['\"]?"#,
-            replacement: "[REDACTED_PII]",
-            severity: .critical
-        ),
-        SanitizationPattern(
-            name: "PII_SK_KEY",
-            patternString: #"(?i)\bsk-[a-zA-Z0-9]{10,}\b"#,
-            replacement: "[REDACTED_PII]",
-            severity: .critical
-        ),
-        SanitizationPattern(
-            name: "PII_PASSWORD",
-            patternString: #"(?i)(?:password|passwd|pwd)\s*[:=]\s*['\"]?[^\s'\"]+['\"]?"#,
-            replacement: "[REDACTED_PII]",
-            severity: .critical
-        ),
-        SanitizationPattern(
-            name: "PII_TOKEN",
-            patternString: #"(?i)(?:token|secret|access[_-]?key)\s*[:=]\s*['\"]?[a-zA-Z0-9_-]{16,}['\"]?"#,
-            replacement: "[REDACTED_PII]",
-            severity: .critical
-        )
-    ]
+    public static let piiPatterns: [SanitizationPattern] = PrivacyRegistry.piiPatterns.map { SanitizationPattern(from: $0) }
     
     /// Combined default patterns
     public static let defaultPatterns: [SanitizationPattern] = {

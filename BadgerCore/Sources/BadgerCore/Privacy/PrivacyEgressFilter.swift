@@ -4,40 +4,7 @@ import Foundation
 
 public struct PrivacyEgressFilter: Sendable {
     
-    public enum SensitiveDataType: String, Sendable, CaseIterable, CustomStringConvertible {
-        case socialSecurityNumber = "SSN"
-        case emailAddress = "Email"
-        case phoneNumber = "Phone"
-        case creditCard = "CreditCard"
-        case ipAddress = "IPAddress"
-        case macAddress = "MACAddress"
-        case apiKey = "APIKey"
-        case password = "Password"
-        case accessToken = "AccessToken"
-        case passportNumber = "Passport"
-        case driverLicense = "DriverLicense"
-        case bankAccount = "BankAccount"
-        case healthRecordID = "HealthRecord"
-        case dateOfBirth = "DateOfBirth"
-        case postalAddress = "Address"
-        
-        public var description: String { rawValue }
-        
-        public var redactionPlaceholder: String {
-            "[REDACTED_\(rawValue.uppercased())]"
-        }
-        
-        public var isHighRisk: Bool {
-            switch self {
-            case .socialSecurityNumber, .creditCard, .passportNumber,
-                 .driverLicense, .bankAccount, .healthRecordID,
-                 .apiKey, .accessToken, .password:
-                return true
-            default:
-                return false
-            }
-        }
-    }
+    public typealias SensitiveDataType = PrivacyRegistry.Pattern.SensitiveDataType
     
     public struct Detection: Sendable, Identifiable {
         public let id = UUID()
@@ -46,11 +13,7 @@ public struct PrivacyEgressFilter: Sendable {
         public let range: Range<String.Index>
         public let confidence: DetectionConfidence
         
-        public enum DetectionConfidence: String, Sendable {
-            case high = "High"
-            case medium = "Medium"
-            case low = "Low"
-        }
+        public typealias DetectionConfidence = PrivacyRegistry.Pattern.Confidence
     }
     
     // Internal helper to hold pre-compiled regex safely
@@ -61,7 +24,7 @@ public struct PrivacyEgressFilter: Sendable {
         
         init(type: SensitiveDataType, pattern: String, confidence: Detection.DetectionConfidence) {
             self.type = type
-            // Force try is acceptable here as these are static constants
+            // Force try is acceptable here as these are static constants from PrivacyRegistry
             self.regex = try! NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
             self.confidence = confidence
         }
@@ -69,35 +32,10 @@ public struct PrivacyEgressFilter: Sendable {
     
     // Lazy static initialization for performance (compiled once).
     // PatternMatcher is Sendable, so this array is Sendable by composition.
-    private static let matchers: [PatternMatcher] = [
-        PatternMatcher(type: .socialSecurityNumber, pattern: #"\b(\d{3}-\d{2}-\d{4}|\d{9})\b"#, confidence: .high),
-        PatternMatcher(type: .emailAddress, pattern: #"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"#, confidence: .high),
-        PatternMatcher(type: .phoneNumber, pattern: #"\b(?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}\b"#, confidence: .high),
-        // Credit card patterns - using separate patterns to avoid overlapping matches
-        // Visa: 13 or 16 digits starting with 4
-        PatternMatcher(type: .creditCard, pattern: #"\b4[0-9]{15}\b"#, confidence: .high), // 16-digit Visa
-        PatternMatcher(type: .creditCard, pattern: #"\b4[0-9]{12}\b"#, confidence: .high), // 13-digit Visa
-        // Mastercard: 16 digits starting with 51-55
-        PatternMatcher(type: .creditCard, pattern: #"\b5[1-5][0-9]{14}\b"#, confidence: .high),
-        // Amex: 15 digits starting with 34 or 37
-        PatternMatcher(type: .creditCard, pattern: #"\b3[47][0-9]{13}\b"#, confidence: .high),
-        // Diners Club: 14 digits
-        PatternMatcher(type: .creditCard, pattern: #"\b3(?:0[0-5]|[68][0-9])[0-9]{11}\b"#, confidence: .high),
-        // Discover: 16 digits starting with 6011 or 65
-        PatternMatcher(type: .creditCard, pattern: #"\b6(?:011|5[0-9]{2})[0-9]{12}\b"#, confidence: .high),
-        PatternMatcher(type: .ipAddress, pattern: #"\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b"#, confidence: .medium),
-        PatternMatcher(type: .macAddress, pattern: #"\b(?:[0-9A-Fa-f]{2}[:-]){5}(?:[0-9A-Fa-f]{2})\b"#, confidence: .medium),
-        PatternMatcher(type: .apiKey, pattern: #"(?i)(?:api[_-]?key|apikey)\s*[:=]\s*['\"]?[a-zA-Z0-9_\-]{16,}['\"]?"#, confidence: .high),
-        PatternMatcher(type: .apiKey, pattern: #"\bsk-[a-zA-Z0-9]{16,}\b"#, confidence: .high),
-        PatternMatcher(type: .password, pattern: #"(?i)(?:password|passwd|pwd)\s*[:=]\s*['\"]?[^\s'\"]+['\"]?"#, confidence: .high),
-        PatternMatcher(type: .accessToken, pattern: #"(?i)(?:token|secret|access[_-]?key)\s*[:=]\s*['\"]?[a-zA-Z0-9_\-]{16,}['\"]?"#, confidence: .high),
-        PatternMatcher(type: .passportNumber, pattern: #"\b[A-Z]{1}[0-9]{6,9}\b"#, confidence: .medium),
-        PatternMatcher(type: .driverLicense, pattern: #"(?i)(?:DL|driver[^a-zA-Z])[\s:]*[A-Z0-9]{6,14}\b"#, confidence: .medium),
-        PatternMatcher(type: .bankAccount, pattern: #"\b\d{8,17}\b"#, confidence: .low),
-        PatternMatcher(type: .healthRecordID, pattern: #"(?i)(?:MRN|medical[^a-zA-Z]record|patient[^a-zA-Z]ID)[\s:]*[A-Z0-9]{6,10}\b"#, confidence: .medium),
-        PatternMatcher(type: .dateOfBirth, pattern: #"(?i)(?:DOB|date[^a-zA-Z]of[^a-zA-Z]birth|born)[\s:]*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{1,2}[/-]\d{1,2})"#, confidence: .medium),
-        PatternMatcher(type: .postalAddress, pattern: #"\d+\s+([A-Za-z]+\s*)+,(\s*[A-Za-z]+)+,\s*[A-Za-z]{2}\s*\d{5}(-\d{4})?"#, confidence: .medium)
-    ]
+    private static let matchers: [PatternMatcher] = PrivacyRegistry.piiPatterns.compactMap { pattern in
+        guard let type = pattern.type else { return nil }
+        return PatternMatcher(type: type, pattern: pattern.regex, confidence: pattern.confidence)
+    }
     
     public struct Configuration: Sendable {
         public let typesToRedact: [SensitiveDataType]
