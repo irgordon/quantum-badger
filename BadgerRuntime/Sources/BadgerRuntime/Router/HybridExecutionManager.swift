@@ -143,6 +143,7 @@ public actor HybridExecutionManager {
     private let vramMonitor: VRAMMonitor
     private let thermalGuard: ThermalGuard
     private let policyManager: any SecurityPolicyManagerProtocol
+    private let rateLimiter: RateLimiter
     private let auditService: AuditLogService
     private let clock: FunctionClock
     
@@ -158,6 +159,7 @@ public actor HybridExecutionManager {
         vramMonitor: VRAMMonitor? = nil,
         thermalGuard: ThermalGuard? = nil,
         policyManager: (any SecurityPolicyManagerProtocol)? = nil,
+        rateLimiter: RateLimiter? = nil,
         auditService: AuditLogService? = nil,
         clock: FunctionClock = SystemFunctionClock()
     ) {
@@ -182,6 +184,7 @@ public actor HybridExecutionManager {
         self.vramMonitor = vram
         self.thermalGuard = thermal
         self.policyManager = policy
+        self.rateLimiter = rateLimiter ?? RateLimiter(clock: clock)
         self.auditService = resolvedAuditService
         self.clock = clock
     }
@@ -284,6 +287,9 @@ public actor HybridExecutionManager {
         modelClass: ModelClass,
         configuration: ExecutionConfiguration
     ) async throws -> String {
+        // SECURITY: Rate limit local execution
+        try await rateLimiter.consume(bucket: .localExecution)
+
         notifyProgress(phase: .loadingModel, percent: 0.5, message: "Loading \(modelClass.rawValue)...")
         
         // Check if model is already loaded
@@ -327,6 +333,9 @@ public actor HybridExecutionManager {
         guard !policy.isLockdown else {
             throw ShadowRouterError.routingFailed("Cloud inference is disabled in Lockdown mode.")
         }
+
+        // SECURITY: Rate limit cloud execution
+        try await rateLimiter.consume(bucket: .cloudExecution)
 
         notifyProgress(phase: .generating, percent: 0.6, message: "Generating via \(provider.rawValue)...")
         

@@ -69,6 +69,7 @@ public final class ModelsViewModel {
     public var availableModels: [ModelDownloadInfo] = []
     public var shadowRouterSettings = ShadowRouterSettings()
     
+    private let fileService: FileManagerService
     private var downloadTasks: [ModelClass: Task<Void, Never>] = [:]
     
     private struct HuggingFaceModelResponse: Decodable {
@@ -99,7 +100,8 @@ public final class ModelsViewModel {
     
     // MARK: - Initialization
     
-    public init() {
+    public init(fileService: FileManagerService? = nil) {
+        self.fileService = fileService ?? FileManagerService(policy: .models)
         setupAvailableModels()
         loadSettings()
     }
@@ -173,38 +175,46 @@ public final class ModelsViewModel {
         downloadTasks.removeValue(forKey: modelClass)
         updateDownloadState(for: modelClass, state: .notStarted)
         let modelPath = modelsDirectory().appendingPathComponent(modelClass.rawValue)
-        try? FileManager.default.removeItem(at: modelPath)
+        Task {
+            try? await fileService.removeItem(at: modelPath)
+        }
     }
     
     public func deleteModel(_ modelClass: ModelClass) {
         let modelPath = modelsDirectory().appendingPathComponent(modelClass.rawValue)
-        do {
-            if FileManager.default.fileExists(atPath: modelPath.path) {
-                try FileManager.default.removeItem(at: modelPath)
+        Task {
+            do {
+                if await fileService.fileExists(at: modelPath) {
+                    try await fileService.removeItem(at: modelPath)
+                }
+            } catch {
+                await MainActor.run {
+                    if let index = availableModels.firstIndex(where: { $0.modelClass == modelClass }) {
+                        availableModels[index].downloadState = .failed(error: error.localizedDescription)
+                    }
+                }
+                return
             }
-        } catch {
-            if let index = availableModels.firstIndex(where: { $0.modelClass == modelClass }) {
-                availableModels[index].downloadState = .failed(error: error.localizedDescription)
+
+            await MainActor.run {
+                if let index = availableModels.firstIndex(where: { $0.modelClass == modelClass }) {
+                    availableModels[index].isDownloaded = false
+                    availableModels[index].localPath = nil
+                    availableModels[index].downloadState = .notStarted
+                }
             }
-            return
-        }
-        
-        if let index = availableModels.firstIndex(where: { $0.modelClass == modelClass }) {
-            availableModels[index].isDownloaded = false
-            availableModels[index].localPath = nil
-            availableModels[index].downloadState = .notStarted
         }
     }
     
     private func checkDownloadedModels() async {
         let directory = modelsDirectory()
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try? await fileService.createDirectory(at: directory, withIntermediateDirectories: true)
         
         for index in availableModels.indices {
             let modelClass = availableModels[index].modelClass
             let modelPath = directory.appendingPathComponent(modelClass.rawValue)
             var isDirectory: ObjCBool = false
-            let exists = FileManager.default.fileExists(atPath: modelPath.path, isDirectory: &isDirectory)
+            let exists = await fileService.fileExists(at: modelPath, isDirectory: &isDirectory)
             if exists, isDirectory.boolValue {
                 availableModels[index].isDownloaded = true
                 availableModels[index].localPath = modelPath
@@ -245,8 +255,8 @@ public final class ModelsViewModel {
     
     private func performModelDownload(modelClass: ModelClass, repo: String) async throws {
         let modelPath = modelsDirectory().appendingPathComponent(modelClass.rawValue)
-        try? FileManager.default.removeItem(at: modelPath)
-        try FileManager.default.createDirectory(at: modelPath, withIntermediateDirectories: true)
+        try? await fileService.removeItem(at: modelPath)
+        try await fileService.createDirectory(at: modelPath, withIntermediateDirectories: true)
         
         let files = try await fetchDownloadableFiles(repo: repo)
         guard !files.isEmpty else {
@@ -284,7 +294,7 @@ public final class ModelsViewModel {
                     try Task.checkCancellation()
                     let fileURL = self.huggingFaceResolveURL(repo: repo, file: file)
                     let destination = modelPath.appendingPathComponent(file)
-                    try FileManager.default.createDirectory(
+                    try await self.fileService.createDirectory(
                         at: destination.deletingLastPathComponent(),
                         withIntermediateDirectories: true
                     )
@@ -294,10 +304,7 @@ public final class ModelsViewModel {
                         throw URLError(.badServerResponse)
                     }
 
-                    if FileManager.default.fileExists(atPath: destination.path) {
-                        try FileManager.default.removeItem(at: destination)
-                    }
-                    try FileManager.default.moveItem(at: tempURL, to: destination)
+                    try await self.fileService.moveItem(at: tempURL, to: destination)
 
                     return 1 // Signal completion of 1 file
                 }
@@ -361,12 +368,12 @@ public final class ModelsViewModel {
         URL(string: "https://huggingface.co/\(repo)/resolve/main/\(file)")!
     }
     
-    private func validateDownloadedModel(at modelPath: URL) throws {
+    private func validateDownloadedModel(at modelPath: URL) async throws {
         let configPath = modelPath.appendingPathComponent("config.json")
-        guard FileManager.default.fileExists(atPath: configPath.path) else {
+        guard await fileService.fileExists(at: configPath) else {
             throw URLError(.fileDoesNotExist)
         }
-        guard let files = try? FileManager.default.contentsOfDirectory(at: modelPath, includingPropertiesForKeys: nil) else {
+        guard let files = try? await fileService.contentsOfDirectory(at: modelPath, includingPropertiesForKeys: nil) else {
             throw URLError(.cannotOpenFile)
         }
         let hasWeights = files.contains { file in
