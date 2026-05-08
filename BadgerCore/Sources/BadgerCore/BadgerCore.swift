@@ -30,6 +30,7 @@ public typealias BadgerAuditEventType = AuditEventType
 
 public typealias BadgerKeyManager = KeyManager
 public typealias BadgerAIProvider = AIProvider
+public typealias BadgerCrypto = Crypto
 
 // MARK: - Sanitization Exports
 

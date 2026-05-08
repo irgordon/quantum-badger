@@ -133,16 +133,24 @@ public enum AuditLogError: Error, Sendable {
 public actor AuditLogService {
     
     private let configuration: AuditLogConfiguration
+    private let keyManager: KeyManager
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
     private var lastHash: String
     private var currentLogFile: URL
     private var isInitialized: Bool = false
+    private let encryptionKeyID = "com.quantumbadger.audit.encryption"
     
     /// Initialize the audit log service
-    /// - Parameter configuration: Configuration for log storage and rotation
-    public init(configuration: AuditLogConfiguration = AuditLogConfiguration()) {
+    /// - Parameters:
+    ///   - configuration: Configuration for log storage and rotation
+    ///   - keyManager: Key manager for log encryption
+    public init(
+        configuration: AuditLogConfiguration = AuditLogConfiguration(),
+        keyManager: KeyManager = KeyManager()
+    ) {
         self.configuration = configuration
+        self.keyManager = keyManager
         self.lastHash = String(repeating: "0", count: 64) // Genesis hash
         self.currentLogFile = configuration.logDirectory.appendingPathComponent("audit.log")
 
@@ -205,14 +213,16 @@ public actor AuditLogService {
     public func verifyChain() async throws -> Bool {
         let logFiles = try getAllLogFiles()
         var expectedPreviousHash = String(repeating: "0", count: 64)
-        
+        let encryptionKey = try await keyManager.getOrCreateSymmetricKey(identifier: encryptionKeyID)
+
         for logFile in logFiles.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
             let content = try String(contentsOf: logFile, encoding: .utf8)
             let lines = content.components(separatedBy: .newlines).filter { !$0.isEmpty }
             
             for line in lines {
-                guard let data = line.data(using: .utf8),
-                      let event = try? decoder.decode(AuditEvent.self, from: data) else {
+                guard let encryptedData = Data(base64Encoded: line),
+                      let decryptedData = try? Crypto.AESGCM.decrypt(encryptedData, using: encryptionKey),
+                      let event = try? decoder.decode(AuditEvent.self, from: decryptedData) else {
                     continue
                 }
                 
@@ -238,16 +248,19 @@ public actor AuditLogService {
     public func getAllEvents() async throws -> [AuditEvent] {
         let logFiles = try getAllLogFiles()
         var events: [AuditEvent] = []
-        
+        let encryptionKey = try await keyManager.getOrCreateSymmetricKey(identifier: encryptionKeyID)
+
         for logFile in logFiles.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
             let content = try String(contentsOf: logFile, encoding: .utf8)
             let lines = content.components(separatedBy: .newlines).filter { !$0.isEmpty }
             
             for line in lines {
-                guard let data = line.data(using: .utf8) else { continue }
-                if let event = try? decoder.decode(AuditEvent.self, from: data) {
-                    events.append(event)
+                guard let encryptedData = Data(base64Encoded: line),
+                      let decryptedData = try? Crypto.AESGCM.decrypt(encryptedData, using: encryptionKey),
+                      let event = try? decoder.decode(AuditEvent.self, from: decryptedData) else {
+                    continue
                 }
+                events.append(event)
             }
         }
         
@@ -294,9 +307,12 @@ public actor AuditLogService {
         let content = try String(contentsOf: latestLog, encoding: .utf8)
         let lines = content.components(separatedBy: .newlines).filter { !$0.isEmpty }
         
+        let encryptionKey = try await keyManager.getOrCreateSymmetricKey(identifier: encryptionKeyID)
+
         if let lastLine = lines.last,
-           let data = lastLine.data(using: .utf8),
-           let event = try? decoder.decode(AuditEvent.self, from: data) {
+           let encryptedData = Data(base64Encoded: lastLine),
+           let decryptedData = try? Crypto.AESGCM.decrypt(encryptedData, using: encryptionKey),
+           let event = try? decoder.decode(AuditEvent.self, from: decryptedData) {
             lastHash = event.hash
             currentLogFile = latestLog
         }
@@ -305,9 +321,10 @@ public actor AuditLogService {
     private func appendEvent(_ event: AuditEvent) async throws {
         let data = try encoder.encode(event)
         
-        guard let jsonString = String(data: data, encoding: .utf8) else {
-            throw AuditLogError.writeFailed
-        }
+        // Encrypt event data before writing
+        let encryptionKey = try await keyManager.getOrCreateSymmetricKey(identifier: encryptionKeyID)
+        let encryptedData = try Crypto.AESGCM.encrypt(data, using: encryptionKey)
+        let base64Encrypted = encryptedData.base64EncodedString()
         
         // Ensure log file exists before opening FileHandle
         let fileManager = FileManager.default
@@ -329,7 +346,7 @@ public actor AuditLogService {
         
         try fileHandle.seekToEnd()
         
-        guard let lineData = (jsonString + "\n").data(using: .utf8) else {
+        guard let lineData = (base64Encrypted + "\n").data(using: .utf8) else {
             throw AuditLogError.writeFailed
         }
         
