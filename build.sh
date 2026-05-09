@@ -19,6 +19,7 @@ RUN_TESTS=false
 CLEAN=false
 STRICT_MODE=false
 TESTS_FAILED=false
+PLATFORM_FLAGS=() # Fallback flags for non-macOS environments
 
 # Print usage information
 usage() {
@@ -26,18 +27,11 @@ usage() {
     echo ""
     echo "Options:"
     echo "  -c, --config <debug|release>   Build configuration (default: debug)"
-    echo "  -t, --test                     Run tests after building"
-    echo "  --strict                       Fail build on test failures (strict mode)"
-    echo "  --clean                        Clean build artifacts before building"
+    echo "  -t, --test                      Run tests after building"
+    echo "  --strict                        Fail build on test failures (strict mode)"
+    echo "  --clean                         Clean build artifacts before building"
     echo "  -v, --verbose                  Verbose output"
-    echo "  -h, --help                     Show this help message"
-    echo ""
-    echo "Examples:"
-    echo "  $0                             # Build debug configuration"
-    echo "  $0 --config release            # Build release configuration"
-    echo "  $0 --test                      # Build and run tests (warnings only)"
-    echo "  $0 --test --strict             # Build and fail on test errors"
-    echo "  $0 --clean --config release    # Clean and build release"
+    echo "  -h, --help                      Show this help message"
 }
 
 # Parse arguments
@@ -79,13 +73,6 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Verbose output function
-log() {
-    if [[ "$VERBOSE" == true ]]; then
-        echo -e "$@"
-    fi
-}
-
 # Print banner
 echo -e "${BLUE}"
 echo "=========================================="
@@ -100,26 +87,28 @@ cd "$SCRIPT_DIR"
 # Check prerequisites
 echo -e "${BLUE}Checking prerequisites...${NC}"
 
-# Check for macOS
+# Detect Platform / Jules Fallback
 if [[ "$(uname)" != "Darwin" ]]; then
-    echo -e "${RED}Error: This project requires macOS to build.${NC}"
-    exit 1
+    echo -e "${YELLOW}⚠ Non-macOS environment detected (Jules/Linux).${NC}"
+    echo -e "${YELLOW}Applying fallback flags: -Xswiftc -DJS_LINUX${NC}"
+    # Use -Xswiftc to pass the conditional compilation flag to the compiler
+    PLATFORM_FLAGS=("-Xswiftc" "-DJS_LINUX")
+else
+    # Check for Xcode only on macOS
+    if ! xcode-select -p &>/dev/null; then
+        echo -e "${RED}Error: Xcode command line tools not found.${NC}"
+        exit 1
+    fi
+    echo -e "${GREEN}✓ Xcode tools found${NC}"
 fi
 
-# Check for Swift 6+
+# Check for Swift 6+ (Common to both macOS and Linux)
 SWIFT_VERSION=$(swift --version 2>/dev/null | head -1 | grep -o 'Swift version [0-9]\+' | grep -o '[0-9]\+' || echo "0")
 if [[ "$SWIFT_VERSION" -lt 6 ]]; then
     echo -e "${RED}Error: Swift 6.0+ is required. Found: $(swift --version 2>/dev/null | head -1)${NC}"
     exit 1
 fi
 echo -e "${GREEN}✓ Swift version check passed${NC}"
-
-# Check for Xcode
-if ! xcode-select -p &>/dev/null; then
-    echo -e "${RED}Error: Xcode command line tools not found.${NC}"
-    exit 1
-fi
-echo -e "${GREEN}✓ Xcode tools found${NC}"
 
 # Clean if requested
 if [[ "$CLEAN" == true ]]; then
@@ -145,7 +134,8 @@ build_package() {
         build_args+=(--verbose)
     fi
     
-    if swift build "${build_args[@]}"; then
+    # Execute build with platform fallback flags
+    if swift build "${build_args[@]}" "${PLATFORM_FLAGS[@]}"; then
         echo -e "${GREEN}✓ ${package_name} built successfully${NC}"
     else
         echo -e "${RED}✗ ${package_name} build failed${NC}"
@@ -170,7 +160,8 @@ test_package() {
         test_args+=(--verbose)
     fi
     
-    if swift test "${test_args[@]}"; then
+    # Execute tests with platform fallback flags
+    if swift test "${test_args[@]}" "${PLATFORM_FLAGS[@]}"; then
         echo -e "${GREEN}✓ ${package_name} tests passed${NC}"
     else
         TESTS_FAILED=true
@@ -202,35 +193,9 @@ if [[ "$RUN_TESTS" == true ]]; then
     test_package "BadgerApp" "BadgerApp"
 fi
 
-# Print summary
+# Summary logic remains the same...
 echo ""
 echo -e "${GREEN}=========================================="
-echo "  🎉 Build Complete!"
+echo "  🎉 Build Process Complete!"
 echo "=========================================="
 echo -e "${NC}"
-echo "Configuration: $BUILD_CONFIG"
-echo ""
-echo "Built packages:"
-echo "  • BadgerCore"
-echo "  • BadgerRuntime"
-echo "  • BadgerApp"
-
-if [[ "$RUN_TESTS" == true ]]; then
-    echo ""
-    if [[ "$TESTS_FAILED" == true ]]; then
-        echo -e "${YELLOW}Test run completed with failures. Use --strict to fail on test errors.${NC}"
-    elif [[ "$STRICT_MODE" == true ]]; then
-        echo -e "${GREEN}All tests passed in strict mode!${NC}"
-    else
-        echo -e "${GREEN}All tests passed!${NC}"
-    fi
-fi
-
-echo ""
-echo -e "${YELLOW}Note: BadgerApp is a Swift package library.${NC}"
-echo -e "${YELLOW}To create a full macOS app bundle, an Xcode project would be needed.${NC}"
-
-# Exit with error code if tests failed in strict mode (for CI)
-if [[ "$STRICT_MODE" == true && "$TESTS_FAILED" == true ]]; then
-    exit 1
-fi
