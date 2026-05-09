@@ -1,3 +1,4 @@
+[ -f "$HOME/.local/share/swiftly/env.sh" ] && source "$HOME/.local/share/swiftly/env.sh"
 #!/bin/bash
 
 # Quantum Badger Build Script
