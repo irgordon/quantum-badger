@@ -1,0 +1,205 @@
+{"type":"info","msg":"Starting Quantum Badger deterministic scan"}
+{"type":"section","msg":"file_inventory"}
+{"type":"file","key":".gitignore","value":"7dfbff11e71ceefa78d56a6f73b4d9eb3f6a44e2"}
+{"type":"file","key":"AUDIT-2026-05-07.md","value":"99689b6f169224db884b1072a4cf9a27b2df802a"}
+{"type":"file","key":"BadgerApp/Package.swift","value":"a5e73d68f4598a67624fde3831494d1fad341989"}
+{"type":"file","key":"BadgerApp/README.md","value":"0a43b96a83ad38fa5ba0c6287703a0aef17a638b"}
+{"type":"file","key":"BadgerApp/Sources/BadgerApp/BadgerApp.swift","value":"cb06ba4fa51aa6a9aa892feb2ea3288638e6ea56"}
+{"type":"file","key":"BadgerApp/Sources/BadgerApp/Coordinator/AppCoordinator.swift","value":"4913fb9e7b4475de25869000d0e70275d50b7ec5"}
+{"type":"file","key":"BadgerApp/Sources/BadgerApp/Formatting/ResponseFormatter.swift","value":"a92a6362c4933f5686b8cf46d3c01ac42292aa66"}
+{"type":"file","key":"BadgerApp/Sources/BadgerApp/Intents/ProcessRemoteCommand.swift","value":"060cd2aaf137d6dae75bf1ea3616dfa4360ccbb9"}
+{"type":"file","key":"BadgerApp/Sources/BadgerApp/Search/SearchIndexer.swift","value":"b0869e8035414642c73d77f217caaab580b91875"}
+{"type":"file","key":"BadgerApp/Sources/BadgerApp/UI/Dashboard/DashboardView.swift","value":"2b6ee2ec0907a115153033dcb020fa8b6ea59a61"}
+{"type":"file","key":"BadgerApp/Sources/BadgerApp/UI/ErrorHandling/FriendlyErrorMapper.swift","value":"f4141f831513c1e3c5f54221cd889bfadc048751"}
+{"type":"file","key":"BadgerApp/Sources/BadgerApp/UI/History/HistoryView.swift","value":"00ccf781aec53424385c3747c00bee598d692938"}
+{"type":"file","key":"BadgerApp/Sources/BadgerApp/UI/Models/ModelsView.swift","value":"c837a118cd9ef94c7c6f6c5d31f5c57b92b4cd18"}
+{"type":"file","key":"BadgerApp/Sources/BadgerApp/UI/Onboarding/OnboardingView.swift","value":"f3e96795543d0ae090698af40401bbc3f2fd2031"}
+{"type":"file","key":"BadgerApp/Sources/BadgerApp/UI/Settings/AppSettingsView.swift","value":"1644d67b22d62f5f048a31ce982431adb670009c"}
+{"type":"file","key":"BadgerApp/Sources/BadgerApp/UI/Settings/CloudAccountsSettingsView.swift","value":"6fbb1c9b1e5c7920bfd018b9888a1b800fff4aa5"}
+{"type":"file","key":"BadgerApp/Sources/BadgerApp/UI/Shared/MainWindow.swift","value":"1275228daf5b15a940cf9bc6edb86d4e0f0cc53d"}
+{"type":"file","key":"BadgerApp/Sources/BadgerApp/ViewModels/DashboardViewModel.swift","value":"f2a9985d730302e7626534e418ddc4737a7d8f49"}
+{"type":"file","key":"BadgerApp/Sources/BadgerApp/ViewModels/HistoryViewModel.swift","value":"e33ca2e6cd3fb89a5c0628b5e9b1f627f26714aa"}
+{"type":"file","key":"BadgerApp/Sources/BadgerApp/ViewModels/ModelsViewModel.swift","value":"b9c9d7dbb0bf1bd27b774f6e5a5f98b2ff596b7e"}
+{"type":"file","key":"BadgerApp/Sources/BadgerApp/ViewModels/OnboardingViewModel.swift","value":"62645399cbe0f2dd64057a3eb41b36eed18f551d"}
+{"type":"file","key":"BadgerApp/Tests/BadgerAppTests/BadgerAppTests.swift","value":"c3486187b38178527b911e7b1c0f451161969b38"}
+{"type":"file","key":"BadgerApp/Tests/BadgerAppTests/BadgerAppUITests.swift","value":"4374933c1b7ef4589d2514812fcd6b1a5e568976"}
+{"type":"file","key":"BadgerApp/Tests/BadgerAppTests/CloudAccountsTests.swift","value":"be5d855897032597709aea9c25d28737a3e3e34d"}
+{"type":"file","key":"BadgerApp/Tests/BadgerAppTests/DashboardViewModelTests.swift","value":"5b63dce929fbcc030afe60e3fb162ca4cca4212d"}
+{"type":"file","key":"BadgerApp/Tests/BadgerAppTests/OnboardingViewModelTests.swift","value":"1cc414c504891197adaf15bf88188f7ddcc03378"}
+{"type":"file","key":"BadgerApp/Tests/BadgerAppTests/ResponseFormatterTests.swift","value":"37253e474f54e6e73f5b6d5a37dffe74cd9e236b"}
+{"type":"file","key":"BadgerCore/Package.swift","value":"7ca9c01f302d413467ba0ed22a8c2826ec0f1ca0"}
+{"type":"file","key":"BadgerCore/Sources/BadgerCore/Audit/AuditLogService.swift","value":"2ef5063d70dd4230007e2392da48c42862216da7"}
+{"type":"file","key":"BadgerCore/Sources/BadgerCore/BadgerCore.swift","value":"ca0cb3f9b2d82a558684c3f645ad2ce655039c6f"}
+{"type":"file","key":"BadgerCore/Sources/BadgerCore/Crypto/Crypto.swift","value":"62588ce014a6dc1fb8efcb1c9eed788a8def7730"}
+{"type":"file","key":"BadgerCore/Sources/BadgerCore/Crypto/KeyManager.swift","value":"2aa14e54bea869e859c952d69a4de0e48a422ffe"}
+{"type":"file","key":"BadgerCore/Sources/BadgerCore/Privacy/PrivacyEgressFilter.swift","value":"37a5b3c99319e901d4f888077dd292524a60af24"}
+{"type":"file","key":"BadgerCore/Sources/BadgerCore/Privacy/PrivacyRegistry.swift","value":"a9459f3065d264dfa39a34f34ba5881567d0f958"}
+{"type":"file","key":"BadgerCore/Sources/BadgerCore/Router/ShadowRouterTypes.swift","value":"2b933a34f45f4ac6e58ca5dce38736bd67334063"}
+{"type":"file","key":"BadgerCore/Sources/BadgerCore/SLA/FunctionSLA.swift","value":"5b4d7c0faf3b39e7d678829906b163693a7c21fa"}
+{"type":"file","key":"BadgerCore/Sources/BadgerCore/SLA/SLARuntimeGuard.swift","value":"d04a3cc9a8b73a5ccdba9acc6c054d4fe318a9ae"}
+{"type":"file","key":"BadgerCore/Sources/BadgerCore/Sanitization/InputSanitizer.swift","value":"830698d52301645995293c63e51b4d471bfb313b"}
+{"type":"file","key":"BadgerCore/Sources/BadgerCore/Security/SecurityPolicy.swift","value":"81da83c55326d159da41058c901aa40936356a20"}
+{"type":"file","key":"BadgerCore/Tests/BadgerCoreTests/InputSanitizerTests.swift","value":"c0f3de211981f94ac1675bd0f3b29d31f1019e57"}
+{"type":"file","key":"BadgerCore/Tests/BadgerCoreTests/KeyManagerXCTests.swift","value":"65b52db318a3c0ae96167bcc91c666a977cadbda"}
+{"type":"file","key":"BadgerCore/Tests/BadgerCoreTests/PrivacyEgressFilterDeduplicationTests.swift","value":"b45d4dea727f8ec20f0690ec129eb76b8a3b48e0"}
+{"type":"file","key":"BadgerCore/Tests/BadgerCoreTests/PrivacyEgressFilterTests.swift","value":"7fd74bf3bd1100aaf5f9931694645794233be09d"}
+{"type":"file","key":"BadgerCore/Tests/BadgerCoreTests/SLARuntimeGuardTests.swift","value":"20ea45cf32a1434bf5f9051b704d8eca196e8acd"}
+{"type":"file","key":"BadgerCore/Tests/BadgerCoreTests/SecurityPolicyTests.swift","value":"dd5856564fff36a1c0ba044b795951d12e5785d7"}
+{"type":"file","key":"BadgerCore/Tests/BadgerCoreTests/ShadowRouterTests.swift","value":"140316ea2c148e18cd431c510343bbc5cf509e07"}
+{"type":"file","key":"BadgerRuntime/INTEGRATION_VALIDATION.md","value":"45fbab0bd3b260510b13976b3a215001ff3dcd81"}
+{"type":"file","key":"BadgerRuntime/Package.swift","value":"aa1ba7604af525bed606ae5d9ebe2a488c5a7bcf"}
+{"type":"file","key":"BadgerRuntime/Sources/BadgerRuntime/BadgerRuntime.swift","value":"0220329ed5e993a5c1a86ff23db3c5f242e66714"}
+{"type":"file","key":"BadgerRuntime/Sources/BadgerRuntime/Cloud/CloudInferenceService.swift","value":"59eec91fe8bef93db27593d9dbe9c5ed1cbf16fc"}
+{"type":"file","key":"BadgerRuntime/Sources/BadgerRuntime/Cloud/CloudStreaming.swift","value":"27b9817dd2560c680f6d029e09c58ed8a4f1c8b9"}
+{"type":"file","key":"BadgerRuntime/Sources/BadgerRuntime/Hardware/ThermalGuard.swift","value":"6a80ba25b3ba4f4294867128f1e8490d7d8e5c7b"}
+{"type":"file","key":"BadgerRuntime/Sources/BadgerRuntime/Hardware/VRAMMonitor.swift","value":"271ee2d0e75e9ed477f93369c623f4d9bdccc670"}
+{"type":"file","key":"BadgerRuntime/Sources/BadgerRuntime/Local/LocalInferenceEngine.swift","value":"c2d04a28092479bcf015d025ce092028f4942c6b"}
+{"type":"file","key":"BadgerRuntime/Sources/BadgerRuntime/Router/HybridExecutionManager.swift","value":"67debcae672ac156ecf8c594e705eed7b4ef6dc3"}
+{"type":"file","key":"BadgerRuntime/Sources/BadgerRuntime/Router/ShadowRouter.swift","value":"9154df1508477526dbb2fe20dc33592a7e6e0017"}
+{"type":"file","key":"BadgerRuntime/Sources/BadgerRuntime/Services/FileManagerService.swift","value":"915c163ed22afdd5582b9fdc1c9696952906bd64"}
+{"type":"file","key":"BadgerRuntime/Sources/BadgerRuntime/Services/RateLimiter.swift","value":"8cdf3d938f0a7a017ec6ddaccb3112cf49d9004a"}
+{"type":"file","key":"BadgerRuntime/Sources/BadgerRuntime/Services/WebBrowserService.swift","value":"52e45232d0b078501ec991470e22e2330092b54f"}
+{"type":"file","key":"BadgerRuntime/Tests/BadgerRuntimeTests/CloudServiceTests.swift","value":"68a0657816f43645a40b89dda7a1d6cce41552ce"}
+{"type":"file","key":"BadgerRuntime/Tests/BadgerRuntimeTests/CloudStreamingTests.swift","value":"a718782502080246ddd85faf3522f26b24b60605"}
+{"type":"file","key":"BadgerRuntime/Tests/BadgerRuntimeTests/HardwareMonitorTests.swift","value":"b3f18412d46c9acbbbed7430dd4a492edcc5b528"}
+{"type":"file","key":"BadgerRuntime/Tests/BadgerRuntimeTests/LocalEngineTests.swift","value":"fa68c3ad8ea2cdb36a3b2b5479ee107deb9dbf53"}
+{"type":"file","key":"BadgerRuntime/Tests/BadgerRuntimeTests/ShadowRouterTests.swift","value":"a6950704d5abab5bc537ad12f7f1fc7b47b7ce90"}
+{"type":"file","key":"BadgerRuntime/Tests/BadgerRuntimeTests/UnifiedEngineTests.swift","value":"9f5fd76cee6600b0d8a66cbbe78f4854b0b67fea"}
+{"type":"file","key":"BadgerRuntime/Tests/BadgerRuntimeTests/VRAMMemoryEstimationTests.swift","value":"7b0e97bbed29197c497263fdbcabd610ce334d4c"}
+{"type":"file","key":"BadgerRuntime/Tests/BadgerRuntimeTests/WebBrowserServiceTests.swift","value":"19a6bb7bc1a339754cb9890210a48e43953b0fce"}
+{"type":"file","key":"CHANGELOG.md","value":"767c066db47f9ef21602dbe1a773fe2bc47ceec2"}
+{"type":"file","key":"CONTRIBUTING.md","value":"8c6bfdba7b3905f081ee7f1f9a684f3249d8dc4c"}
+{"type":"file","key":"LICENSE","value":"1dc60e1089f635f186b62c1fb50bda40c47695bf"}
+{"type":"file","key":"PERFORMANCE_RATIONALE.md","value":"82b653ad9cadc9c80d88f84c0d03d25d7c01a9d0"}
+{"type":"file","key":"README.md","value":"911bdaf2e0b15df516f42c2f6bcc66cf856b4124"}
+{"type":"file","key":"SLA_REFACTOR_NOTES.md","value":"983b9ea801b8bb8957058316a09410c54e8be4c4"}
+{"type":"file","key":"TECHNICAL_SPEC.md","value":"d97fe61f44aeab66a719ba95bdb49ab4690fc7f4"}
+{"type":"file","key":"benchmark_html_processing.swift","value":"24d1f50fd1cdfeb363dd907158b2ce74be70938c"}
+{"type":"file","key":"build.sh","value":"6a3740208691408e6b1452bff576f8c4f501c980"}
+{"type":"file","key":"deterministic_scan.sh","value":"56b559e782979f59e3230bf62b8c3cb26750f8c6"}
+{"type":"file","key":"logo.png","value":"bd9abd15d94aacf8aa45ffdcae174960f33d5b14"}
+{"type":"file","key":"reproduction_script.swift","value":"607126e9c25de0a76f4172e326b5e58d5070b047"}
+{"type":"section","msg":"swift_surface"}
+{"type":"swift_empty_func","key":"BadgerCore/Tests/BadgerCoreTests/ShadowRouterTests.swift","value":"23:        func example() { }"}
+{"type":"swift_empty_func","key":"BadgerApp/Tests/BadgerAppTests/ResponseFormatterTests.swift","value":"34:        let codeContent1 = \"```swift\\nfunc test() {}\\n```\""}
+{"type":"swift_empty_func","key":"BadgerApp/Tests/BadgerAppTests/BadgerAppUITests.swift","value":"132:        let codeContent = \"```swift\\nfunc test() {}\\n```\""}
+{"type":"section","msg":"mlx_surface"}
+{"type":"mlx_usage","key":"mlx","value":".gitignore:3:# Optimized for Xcode 26.3, MLX, and Local Swift Packages"}
+{"type":"mlx_usage","key":"mlx","value":".gitignore:28:# --- MLX & AI Specifics ---"}
+{"type":"mlx_usage","key":"mlx","value":"deterministic_scan.sh:62:# 3. MLX / Model Service Surface"}
+{"type":"mlx_usage","key":"mlx","value":"deterministic_scan.sh:66:grep -RIn --exclude-dir=\".git\" \"MLX\" \"$REPO_ROOT\" | while read -r line; do"}
+{"type":"mlx_usage","key":"mlx","value":"CHANGELOG.md:95:- Local-first execution with MLX support."}
+{"type":"mlx_usage","key":"mlx","value":"BadgerRuntime/Tests/BadgerRuntimeTests/LocalEngineTests.swift:140:        #expect(ModelClass.phi4.isMLXOptimized == true)"}
+{"type":"mlx_usage","key":"mlx","value":"BadgerRuntime/Tests/BadgerRuntimeTests/LocalEngineTests.swift:141:        #expect(ModelClass.qwen25.isMLXOptimized == true)"}
+{"type":"mlx_usage","key":"mlx","value":"BadgerRuntime/Sources/BadgerRuntime/Local/LocalInferenceEngine.swift:2:import MLX"}
+{"type":"mlx_usage","key":"mlx","value":"BadgerRuntime/Sources/BadgerRuntime/Local/LocalInferenceEngine.swift:3:import MLXRandom"}
+{"type":"mlx_usage","key":"mlx","value":"BadgerRuntime/Sources/BadgerRuntime/Local/LocalInferenceEngine.swift:157:/// Actor responsible for managing local MLX-based inference"}
+{"type":"mlx_usage","key":"mlx","value":"BadgerRuntime/Sources/BadgerRuntime/Local/LocalInferenceEngine.swift:162:    private var currentModel: (container: MLXModelContainer, info: LoadedModelInfo)?"}
+{"type":"mlx_usage","key":"mlx","value":"BadgerRuntime/Sources/BadgerRuntime/Local/LocalInferenceEngine.swift:214:        // Load the model using MLX"}
+{"type":"mlx_usage","key":"mlx","value":"BadgerRuntime/Sources/BadgerRuntime/Local/LocalInferenceEngine.swift:216:            let container = try await loadMLXModel("}
+{"type":"mlx_usage","key":"mlx","value":"BadgerRuntime/Sources/BadgerRuntime/Local/LocalInferenceEngine.swift:255:        // In real MLX, we might need to manually clear cache"}
+{"type":"mlx_usage","key":"mlx","value":"BadgerRuntime/Sources/BadgerRuntime/Local/LocalInferenceEngine.swift:256:        // MLX.eval(MLX.clearCache())"}
+{"type":"mlx_usage","key":"mlx","value":"BadgerRuntime/Sources/BadgerRuntime/Local/LocalInferenceEngine.swift:300:            // Use MLX for generation"}
+{"type":"mlx_usage","key":"mlx","value":"BadgerRuntime/Sources/BadgerRuntime/Local/LocalInferenceEngine.swift:301:            let result = try await generateWithMLX("}
+{"type":"mlx_usage","key":"mlx","value":"BadgerRuntime/Sources/BadgerRuntime/Local/LocalInferenceEngine.swift:331:    /// The current backend requires explicit MLX text-generation integration."}
+{"type":"mlx_usage","key":"mlx","value":"BadgerRuntime/Sources/BadgerRuntime/Local/LocalInferenceEngine.swift:410:    // MARK: - Private MLX Integration"}
+{"type":"mlx_usage","key":"mlx","value":"BadgerRuntime/Sources/BadgerRuntime/Local/LocalInferenceEngine.swift:412:    private func loadMLXModel("}
+{"type":"mlx_usage","key":"mlx","value":"BadgerRuntime/Sources/BadgerRuntime/Local/LocalInferenceEngine.swift:417:    ) async throws -> MLXModelContainer {"}
+{"type":"mlx_usage","key":"mlx","value":"BadgerRuntime/Sources/BadgerRuntime/Local/LocalInferenceEngine.swift:418:        // Bridge to the MLX model container."}
+{"type":"mlx_usage","key":"mlx","value":"BadgerRuntime/Sources/BadgerRuntime/Local/LocalInferenceEngine.swift:432:        let container = try await MLXModelContainer.load(from: directory, config: config)"}
+{"type":"mlx_usage","key":"mlx","value":"BadgerRuntime/Sources/BadgerRuntime/Local/LocalInferenceEngine.swift:436:    private func generateWithMLX("}
+{"type":"mlx_usage","key":"mlx","value":"BadgerRuntime/Sources/BadgerRuntime/Local/LocalInferenceEngine.swift:437:        container: MLXModelContainer,"}
+{"type":"mlx_usage","key":"mlx","value":"BadgerRuntime/Sources/BadgerRuntime/Local/LocalInferenceEngine.swift:444:            MLXRandom.seed(seed)"}
+{"type":"mlx_usage","key":"mlx","value":"BadgerRuntime/Sources/BadgerRuntime/Local/LocalInferenceEngine.swift:451:// MARK: - MLX Model Wrapper (Bridge)"}
+{"type":"mlx_usage","key":"mlx","value":"BadgerRuntime/Sources/BadgerRuntime/Local/LocalInferenceEngine.swift:453:/// A wrapper around the actual MLX Model types to separate"}
+{"type":"mlx_usage","key":"mlx","value":"BadgerRuntime/Sources/BadgerRuntime/Local/LocalInferenceEngine.swift:454:/// our actor logic from the specific MLX implementation details."}
+{"type":"mlx_usage","key":"mlx","value":"BadgerRuntime/Sources/BadgerRuntime/Local/LocalInferenceEngine.swift:455:/// This avoids \"Sendable\" warnings on raw MLX pointers and type conflicts."}
+{"type":"mlx_usage","key":"mlx","value":"BadgerRuntime/Sources/BadgerRuntime/Local/LocalInferenceEngine.swift:456:internal actor MLXModelContainer {"}
+{"type":"mlx_usage","key":"mlx","value":"BadgerRuntime/Sources/BadgerRuntime/Local/LocalInferenceEngine.swift:460:    static func load(from url: URL, config: ModelLoadConfiguration) async throws -> MLXModelContainer {"}
+{"type":"mlx_usage","key":"mlx","value":"BadgerRuntime/Sources/BadgerRuntime/Local/LocalInferenceEngine.swift:477:        return MLXModelContainer()"}
+{"type":"mlx_usage","key":"mlx","value":"BadgerRuntime/Sources/BadgerRuntime/Local/LocalInferenceEngine.swift:484:            \"Local MLX generation backend is unavailable. Load a supported runtime integration or use cloud fallback.\""}
+{"type":"mlx_usage","key":"mlx","value":"BadgerRuntime/Sources/BadgerRuntime/Local/LocalInferenceEngine.swift:494:                    \"Local MLX streaming backend is unavailable. Load a supported runtime integration or use non-streaming fallback.\""}
+{"type":"mlx_usage","key":"mlx","value":"BadgerRuntime/Package.swift:20:        // MLX Swift for local inference"}
+{"type":"mlx_usage","key":"mlx","value":"BadgerRuntime/Package.swift:28:                .product(name: \"MLX\", package: \"mlx-swift\"),"}
+{"type":"mlx_usage","key":"mlx","value":"BadgerRuntime/Package.swift:29:                .product(name: \"MLXRandom\", package: \"mlx-swift\"),"}
+{"type":"mlx_usage","key":"mlx","value":"BadgerCore/Tests/BadgerCoreTests/ShadowRouterTests.swift:86:        #expect(ModelClass.allCases.allSatisfy { $0.isMLXOptimized })"}
+{"type":"mlx_usage","key":"mlx","value":"BadgerCore/Sources/BadgerCore/Router/ShadowRouterTypes.swift:27:    public var isMLXOptimized: Bool {"}
+{"type":"mlx_usage","key":"mlx","value":"CONTRIBUTING.md:30:Open `QuantumBadger.xcodeproj`. Xcode will automatically resolve the Swift Package Manager (SPM) dependencies (`MLX`, `BadgerCore`, etc.)."}
+{"type":"mlx_usage","key":"mlx","value":"CONTRIBUTING.md:39:* **`BadgerRuntime` (Logic Layer):** Handles the \"Brain.\" This includes the `ShadowRouter`, `LocalInferenceEngine` (MLX), `CloudInferenceService`, and System Monitoring actors."}
+{"type":"mlx_usage","key":"mlx","value":"README.md:9:![MLX](https://img.shields.io/badge/AI-MLX_Swift-blue)"}
+{"type":"mlx_usage","key":"mlx","value":"README.md:20:* **Local First:** Runs optimized models (Phi-4, Mistral 7B, Llama 3) directly on your device using Apple Silicon (Metal/MLX)."}
+{"type":"mlx_usage","key":"mlx","value":"README.md:50:* **Local Inference:** Metal / MLX (Apple Silicon Optimized)"}
+{"type":"mlx_usage","key":"mlx","value":"README.md:144:Built with ❤️ using Swift 6 and MLX-LM."}
+{"type":"model_reference","key":"qwen","value":"deterministic_scan.sh:72:grep -RIn --exclude-dir=\".git\" \"Qwen\" \"$REPO_ROOT\" | while read -r line; do"}
+{"type":"model_reference","key":"qwen","value":"BadgerRuntime/Sources/BadgerRuntime/Hardware/VRAMMonitor.swift:263:            return .qwen25   // 3B-7B Params (Qwen comes in sizes, assuming 3B here)"}
+{"type":"model_reference","key":"qwen","value":"BadgerCore/Sources/BadgerCore/Router/ShadowRouterTypes.swift:8:    case qwen25 = \"Qwen-2.5\""}
+{"type":"model_reference","key":"qwen","value":"BadgerApp/Tests/BadgerAppTests/BadgerAppUITests.swift:59:        #expect(modelNames.contains(\"Qwen 2.5\"))"}
+{"type":"model_reference","key":"qwen","value":"BadgerApp/Sources/BadgerApp/UI/Onboarding/OnboardingView.swift:330:                    title: \"Qwen 2.5\","}
+{"type":"model_reference","key":"qwen","value":"BadgerApp/Sources/BadgerApp/ViewModels/ModelsViewModel.swift:120:                name: \"Qwen 2.5\","}
+{"type":"model_reference","key":"qwen","value":"BadgerApp/Sources/BadgerApp/ViewModels/ModelsViewModel.swift:121:                description: \"Alibaba's Qwen 2.5 7B model - Strong multilingual support\","}
+{"type":"model_reference","key":"qwen","value":"BadgerApp/Sources/BadgerApp/ViewModels/ModelsViewModel.swift:123:                huggingFaceRepo: \"mlx-community/Qwen2.5-7B-Instruct\""}
+{"type":"model_reference","key":"qwen","value":"TECHNICAL_SPEC.md:1687:| Small   | < 1B            | < 1GB              | Every Apple Device        | Gemma 3 1B, **Qwen2.5‑0.5B**                                       |"}
+{"type":"model_reference","key":"qwen","value":"TECHNICAL_SPEC.md:1688:| Normal  | 3B–4B           | 2GB–3GB            | MacBook Air (8GB)         | Gemma 3 4B, Llama 3.2 3B, **Qwen2.5‑3B**, **Qwen3‑3B**             |"}
+{"type":"model_reference","key":"qwen","value":"TECHNICAL_SPEC.md:1689:| Medium  | 7B–14B          | 5GB–9GB            | MacBook Pro (16GB+)       | Llama 3 8B, Gemma 2 9B, Gemma 3 12B, Jais‑13B, **Qwen3‑7B** |"}
+{"type":"model_reference","key":"qwen","value":"TECHNICAL_SPEC.md:1690:| Heavy   | 32B–47B         | 18GB–28GB          | M‑Max Series (36GB+)      | Gemma 2 27B, Mixtral 8×7B, **Qwen2.5‑32B**, **Qwen3‑32B**          |"}
+{"type":"model_reference","key":"qwen","value":"TECHNICAL_SPEC.md:1691:| Ultra   | 70B–671B        | 40GB–400GB+        | Mac Studio (128GB+)       | Llama 3 70B, Llama 2 70B, **Qwen2.5‑72B**, **Qwen3‑72B**           |"}
+{"type":"section","msg":"sqlite_schema"}
+{"type":"section","msg":"unsafe_patterns"}
+{"type":"unsafe_pattern","key":"BadgerCore/Sources/BadgerCore/Privacy/PrivacyEgressFilter.swift","value":"28:            self.regex = try! NSRegularExpression(pattern: pattern, options: [.caseInsensitive])"}
+{"type":"unsafe_pattern","key":"benchmark_html_processing.swift","value":"7:    static let scriptRegex = try! NSRegularExpression(pattern: #\"<script\\b[^<]*(?:(?!<\\/script>)<[^<]*)*<\\/script>\"#)"}
+{"type":"unsafe_pattern","key":"benchmark_html_processing.swift","value":"8:    static let styleRegex = try! NSRegularExpression(pattern: #\"<style\\b[^<]*(?:(?!<\\/style>)<[^<]*)*<\\/style>\"#)"}
+{"type":"unsafe_pattern","key":"benchmark_html_processing.swift","value":"9:    static let htmlTagRegex = try! NSRegularExpression(pattern: #\"<[^>]+>\"#)"}
+{"type":"unsafe_pattern","key":"benchmark_html_processing.swift","value":"10:    static let jsSchemeRegex = try! NSRegularExpression(pattern: #\"javascript:[^\\s\\\"']+\"#)"}
+{"type":"unsafe_pattern","key":"benchmark_html_processing.swift","value":"11:    static let eventHandlerRegex = try! NSRegularExpression(pattern: #\"on\\w+\\s*=\\s*['\\\"]?[^'\\\"\\s>]+\"#)"}
+{"type":"unsafe_pattern","key":"benchmark_html_processing.swift","value":"12:    static let whitespaceRegex = try! NSRegularExpression(pattern: #\"\\s+\"#)"}
+{"type":"section","msg":"build_check"}
+{"type":"build","key":"skipped","value":"swift binary not found"}
+{"type":"section","msg":"contract_surface"}
+{"type":"protocol","key":"swift","value":"deterministic_scan.sh:121:grep -RIn --exclude-dir=\".git\" \"protocol \" \"$REPO_ROOT\" | while read -r line; do"}
+{"type":"protocol","key":"swift","value":"BadgerRuntime/Sources/BadgerRuntime/Router/ShadowRouter.swift:108:public protocol ShadowRouterProtocol: Sendable {"}
+{"type":"protocol","key":"swift","value":"BadgerRuntime/Sources/BadgerRuntime/Router/HybridExecutionManager.swift:126:public protocol HybridExecutionManagerDelegate: AnyObject, Sendable {"}
+{"type":"protocol","key":"swift","value":"BadgerRuntime/Sources/BadgerRuntime/Cloud/CloudStreaming.swift:279:public protocol TokenRefreshHandler: Sendable {"}
+{"type":"protocol","key":"swift","value":"BadgerRuntime/Sources/BadgerRuntime/Hardware/ThermalGuard.swift:81:public protocol ThermalMonitorDelegate: AnyObject, Sendable {"}
+{"type":"protocol","key":"swift","value":"BadgerRuntime/Sources/BadgerRuntime/Hardware/ThermalGuard.swift:88:public protocol ThermalGuardProtocol: Sendable {"}
+{"type":"protocol","key":"swift","value":"BadgerRuntime/Sources/BadgerRuntime/Hardware/VRAMMonitor.swift:108:public protocol VRAMMonitorProtocol: Sendable {"}
+{"type":"protocol","key":"swift","value":"BadgerCore/Sources/BadgerCore/SLA/FunctionSLA.swift:43:public protocol FunctionClock: Sendable {"}
+{"type":"protocol","key":"swift","value":"BadgerCore/Sources/BadgerCore/Crypto/KeyManager.swift:49:public protocol CoreFoundationTypeBridge {"}
+{"type":"protocol","key":"swift","value":"BadgerCore/Sources/BadgerCore/Crypto/KeyManager.swift:212:public protocol KeyProvider: Sendable {"}
+{"type":"protocol","key":"swift","value":"BadgerCore/Sources/BadgerCore/Crypto/KeyManager.swift:217:public protocol StorageProvider: Sendable {"}
+{"type":"protocol","key":"swift","value":"BadgerCore/Sources/BadgerCore/Security/SecurityPolicy.swift:104:public protocol SecurityPolicyManagerProtocol: Sendable {"}
+{"type":"protocol","key":"swift","value":"BadgerApp/Sources/BadgerApp/UI/ErrorHandling/FriendlyErrorMapper.swift:8:public protocol ErrorPresentable: View {"}
+{"type":"contract_struct","key":"swift","value":"deterministic_scan.sh:126:grep -RIn --exclude-dir=\".git\" \"struct \" \"$REPO_ROOT\" | grep -E \"Request|Response|Model|Memory\" | while read -r line; do"}
+{"type":"contract_struct","key":"swift","value":"BadgerRuntime/Tests/BadgerRuntimeTests/VRAMMemoryEstimationTests.swift:7:struct VRAMMemoryEstimationTests {"}
+{"type":"contract_struct","key":"swift","value":"BadgerRuntime/Sources/BadgerRuntime/Local/LocalInferenceEngine.swift:23:public struct ModelLoadConfiguration: Sendable {"}
+{"type":"contract_struct","key":"swift","value":"BadgerRuntime/Sources/BadgerRuntime/Local/LocalInferenceEngine.swift:146:public struct LoadedModelInfo: Sendable {"}
+{"type":"contract_struct","key":"swift","value":"BadgerRuntime/Sources/BadgerRuntime/Cloud/CloudInferenceService.swift:87:public struct CloudRequestConfiguration: Sendable {"}
+{"type":"contract_struct","key":"swift","value":"BadgerRuntime/INTEGRATION_VALIDATION.md:187:public struct CloudRequestConfiguration: Sendable {"}
+{"type":"contract_struct","key":"swift","value":"BadgerApp/Tests/BadgerAppTests/DashboardViewModelTests.swift:74:struct RouterFlowStateTests {"}
+{"type":"contract_struct","key":"swift","value":"BadgerApp/Tests/BadgerAppTests/DashboardViewModelTests.swift:119:struct DashboardViewModelTests {"}
+{"type":"contract_struct","key":"swift","value":"BadgerApp/Tests/BadgerAppTests/OnboardingViewModelTests.swift:56:struct OnboardingViewModelTests {"}
+{"type":"contract_struct","key":"swift","value":"BadgerApp/Tests/BadgerAppTests/ResponseFormatterTests.swift:8:struct ResponseFormatterTests {"}
+{"type":"contract_struct","key":"swift","value":"BadgerApp/Sources/BadgerApp/UI/Settings/AppSettingsView.swift:521:struct LocalModelConfigurationView: View {"}
+{"type":"contract_struct","key":"swift","value":"BadgerApp/Sources/BadgerApp/UI/Models/ModelsView.swift:8:public struct ModelsView: View {"}
+{"type":"contract_struct","key":"swift","value":"BadgerApp/Sources/BadgerApp/UI/Models/ModelsView.swift:310:struct StatCard: View {"}
+{"type":"contract_struct","key":"swift","value":"BadgerApp/Sources/BadgerApp/UI/Models/ModelsView.swift:347:struct ModelDownloadRow: View {"}
+{"type":"contract_struct","key":"swift","value":"BadgerApp/Sources/BadgerApp/UI/Onboarding/OnboardingView.swift:75:struct ModelCard: View {"}
+{"type":"contract_struct","key":"swift","value":"BadgerApp/Sources/BadgerApp/UI/Onboarding/OnboardingView.swift:294:struct LocalModelsStep: View {"}
+{"type":"contract_struct","key":"swift","value":"BadgerApp/Sources/BadgerApp/ViewModels/ModelsViewModel.swift:51:    public struct ModelDownloadInfo: Identifiable, Equatable {"}
+{"type":"contract_struct","key":"swift","value":"BadgerApp/Sources/BadgerApp/ViewModels/ModelsViewModel.swift:75:    private struct HuggingFaceModelResponse: Decodable {"}
+{"type":"contract_struct","key":"swift","value":"BadgerApp/Sources/BadgerApp/ViewModels/ModelsViewModel.swift:76:        struct Sibling: Decodable {"}
+{"type":"contract_struct","key":"swift","value":"BadgerApp/Sources/BadgerApp/ViewModels/ModelsViewModel.swift:84:    public struct ShadowRouterSettings: Equatable {"}
+{"type":"contract_struct","key":"swift","value":"BadgerApp/Sources/BadgerApp/ViewModels/DashboardViewModel.swift:88:    public struct DecisionRecord: Identifiable, Equatable {"}
+{"type":"contract_struct","key":"swift","value":"BadgerApp/Sources/BadgerApp/ViewModels/OnboardingViewModel.swift:586:        struct TokenResponse: Decodable {"}
+{"type":"contract_struct","key":"swift","value":"BadgerApp/Sources/BadgerApp/ViewModels/OnboardingViewModel.swift:609:    private struct PKCEPair {"}
+{"type":"contract_struct","key":"swift","value":"BadgerApp/Sources/BadgerApp/Formatting/ResponseFormatter.swift:7:public struct LanguageDetector: Sendable {"}
+{"type":"contract_struct","key":"swift","value":"BadgerApp/Sources/BadgerApp/Formatting/ResponseFormatter.swift:19:            case .swift: return [\"import Foundation\", \"func \", \"var \", \"let \", \"class \", \"struct \"]"}
+{"type":"contract_struct","key":"swift","value":"BadgerApp/Sources/BadgerApp/Formatting/ResponseFormatter.swift:71:public struct FormatDetectionResult: Sendable {"}
+{"type":"contract_struct","key":"swift","value":"TECHNICAL_SPEC.md:533:struct ExecutionRequest: Codable {"}
+{"type":"section","msg":"classification_stub"}
+{"type":"classification_rule","key":"P0","value":"Build failure, missing core subsystem, or crash-on-start"}
+{"type":"classification_rule","key":"P1","value":"Broken contract surface or missing required implementation"}
+{"type":"classification_rule","key":"P2","value":"Unsafe patterns or nondeterministic behavior"}
+{"type":"classification_rule","key":"P3","value":"Missing tests or incomplete coverage"}
+{"type":"classification_rule","key":"P4","value":"Performance or maintainability issues"}
+{"type":"classification_rule","key":"P5","value":"Cosmetic or documentation issues"}
+{"type":"info","msg":"Scan complete"}
